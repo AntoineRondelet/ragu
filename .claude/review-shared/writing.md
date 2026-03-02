@@ -19,6 +19,11 @@ code-review) layer additional rules on top of these.
   doesn't need a comment. If it isn't obvious, these words are dishonest.
 - "Note that" is almost always filler. Delete it and the sentence usually
   improves.
+- Vague catch-all qualifiers — "whatever," "any way," "however they want" —
+  conceal specific reasoning. When describing a design motivation, name the
+  actual benefit. "So they can represent wires in whatever way suits their
+  context" → "so they can represent wires in an efficient way that suits their
+  context."
 
 ## Sentence Structure
 
@@ -28,6 +33,10 @@ code-review) layer additional rules on top of these.
   If the aside is important enough to include, it deserves its own sentence.
 - Technical terms should be introduced before use. Flag forward references to
   undefined terms.
+- Use explicit connectives (conjunctions, semicolons) between coordinated
+  clauses. Don't rely on bare comma juxtaposition to imply the relationship.
+  "One might accumulate a field element, another might append terms" → "one
+  might accumulate a field element, and another might append terms."
 
 ## Word Repetition
 

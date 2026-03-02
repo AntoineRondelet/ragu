@@ -42,8 +42,4 @@ SUMMARY.md line 48 `[Drivers]()` has no index.md, with only 2 child pages
 (emulator.md has content, custom.md is a TODO stub). Revisit when custom.md
 is written — may need a substantive index.md or flattening.
 
-### Missing motivational opening in `guide/drivers.md`
-
-Page opens with technical driver definition without first explaining why
-drivers matter to the reader. Add a brief motivational paragraph.
 

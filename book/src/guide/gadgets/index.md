@@ -11,8 +11,8 @@ As an example, one of the simplest gadgets is the [`Boolean`][boolean-gadget]
 gadget which internally represents a wire that is constrained to be $0$ or $1$
 together with the witness information (a `bool`) that describes its assignment.
 Wires always take the form of an associated type `D::Wire` based on the
-[driver](../drivers.md) `D`, and so the `Boolean` gadget could be represented by
-the Rust structure:
+[driver](../drivers/index.md) `D`, and so the `Boolean` gadget could be
+represented by the Rust structure:
 
 ```rust
 pub struct Boolean<'dr, D: Driver<'dr>> {
