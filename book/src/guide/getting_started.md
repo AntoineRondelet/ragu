@@ -344,8 +344,8 @@ For deeper exploration of PCD applications in Ragu:
   parameters and selection criteria
 - **[Gadgets](gadgets/index.md)**: Documentation of Element, Sponge, and
   other building blocks
-- **[Drivers](drivers.md)**: Explanation of execution contexts (Emulator,
-  SXY, RX)
+- **[Drivers](drivers/index.md)**: The Driver trait abstraction, witness
+  data, and linear expressions
 
 
 ## Summary

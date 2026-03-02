@@ -1,6 +1,6 @@
 # Routines
 
-Circuit code asks the [driver](drivers.md) to allocate wires and enforce
+Circuit code asks the [driver](drivers/index.md) to allocate wires and enforce
 constraints, turning a computation into a verifiable trace. The driver typically
 sees only a flat stream of constraints, with no structural insight into the
 operations they compose.
