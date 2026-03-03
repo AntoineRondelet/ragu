@@ -753,6 +753,7 @@ dependencies = [
  "ff",
  "group",
  "gungraun",
+ "maybe-rayon",
  "proptest",
  "ragu_arithmetic",
  "ragu_core",
