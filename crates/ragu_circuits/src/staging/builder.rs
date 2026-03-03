@@ -150,7 +150,12 @@ impl<'dr, D: Driver<'dr>, R: Rank, S: Stage<D::F, R> + 'dr> StageGuard<'dr, D, R
             _marker: PhantomData,
         };
 
-        computed_gadget.map(&mut injector)
+        let result = computed_gadget.map(&mut injector)?;
+        assert!(
+            injector.stage_wires.next().is_none(),
+            "not all stage wires were consumed"
+        );
+        Ok(result)
     }
 
     /// Injects stage wires without enforcing constraints.
