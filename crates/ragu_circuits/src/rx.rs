@@ -9,29 +9,66 @@ use ff::Field;
 use ragu_arithmetic::Coeff;
 use ragu_core::{
     Error, Result,
-    drivers::{Driver, DriverTypes, emulator::Emulator},
-    gadgets::{Bound, GadgetKind},
+    drivers::{Driver, DriverTypes, FromDriver, emulator::Emulator},
+    gadgets::{Bound, Gadget},
     maybe::{Always, Maybe, MaybeKind},
-    routines::Routine,
+    routines::{Prediction, Routine},
 };
 use ragu_primitives::GadgetExt;
 
-use alloc::{vec, vec::Vec};
+use alloc::{boxed::Box, vec, vec::Vec};
+use core::marker::PhantomData;
 
 use super::{
     Circuit, DriverScope, Rank, floor_planner::ConstraintSegment, metrics::SegmentRecord, registry,
     structured,
 };
 
+/// A deferred routine evaluation, queued for serial execution.
+struct Thunk<'env, F: Field>(
+    Box<dyn FnOnce(&mut Vec<Thunk<'env, F>>) -> Result<Vec<AnnotatedSegment<F>>> + Send + 'env>,
+);
+
 /// A contiguous group of multiplication gates.
 ///
 /// Segment 0 is the root segment and holds the placeholder `ONE` gate
 /// at position 0. Routine calls create additional segments (see
 /// [`Evaluator::routine`]).
+#[derive(Clone)]
 pub(crate) struct Segment<F> {
     pub(crate) a: Vec<F>,
     pub(crate) b: Vec<F>,
     pub(crate) c: Vec<F>,
+}
+
+/// A segment paired with the DFS path that produced it, so that segments from
+/// independent evaluators can be sorted back into the canonical DFS order
+/// expected by the floor planner.
+///
+/// The path is the sequence of routine-call indices from root to this segment.
+/// For example, if the root's second routine call (`routine_counter = 1`)
+/// itself makes a first routine call (`routine_counter = 0`), that inner
+/// segment has path `[1, 0]`. Lexicographic sort of paths reconstructs DFS
+/// visitation order.
+#[derive(Clone)]
+struct AnnotatedSegment<F> {
+    dfs_path: Vec<usize>,
+    segment: Segment<F>,
+}
+
+impl<F: Field> AnnotatedSegment<F> {
+    fn new(prefix: &[usize]) -> Self {
+        let is_root = prefix.is_empty();
+        let init = || if is_root { vec![F::ZERO] } else { Vec::new() };
+        Self {
+            dfs_path: prefix.to_vec(),
+            segment: Segment {
+                a: init(),
+                b: init(),
+                c: init(),
+            },
+        }
+    }
 }
 
 /// Trace data produced by evaluating a circuit.
@@ -42,28 +79,6 @@ pub struct Trace<F> {
     /// Gate groups in DFS order. Segment 0 is the root segment;
     /// segments 1+ are created by [`Driver::routine`] calls.
     pub(crate) segments: Vec<Segment<F>>,
-}
-
-impl<F: Field> Trace<F> {
-    pub(crate) fn new() -> Self {
-        // Segment 0 starts with a zeroed placeholder for the ONE gate.
-        // assemble_with_key overwrites position 0 with the actual key values.
-        Self {
-            segments: vec![Segment {
-                a: vec![F::ZERO],
-                b: vec![F::ZERO],
-                c: vec![F::ZERO],
-            }],
-        }
-    }
-
-    fn push_segment(&mut self) {
-        self.segments.push(Segment {
-            a: Vec::new(),
-            b: Vec::new(),
-            c: Vec::new(),
-        });
-    }
 }
 
 impl<F: Field> Trace<F> {
@@ -162,26 +177,48 @@ impl<F: Field> Trace<F> {
 }
 
 /// Per-routine state that is saved and restored by [`DriverScope`].
-#[derive(Default)]
 struct TraceScope {
     /// Gate index within the current segment, from paired allocation.
     available_b: Option<usize>,
+
     /// Index of the segment that receives new gates.
     current_segment: usize,
+
+    /// Monotonic counter of `routine()` calls in this scope.
+    routine_counter: usize,
+
+    /// The DFS path from root to this evaluator's scope.
+    dfs_prefix: Vec<usize>,
 }
 
-struct Evaluator<'a, F: Field> {
-    trace: &'a mut Trace<F>,
+struct Evaluator<'scope, 'env, F: Field> {
+    segments: Vec<AnnotatedSegment<F>>,
+    thunks: &'scope mut Vec<Thunk<'env, F>>,
     state: TraceScope,
 }
 
-impl<F: Field> DriverScope<TraceScope> for Evaluator<'_, F> {
+impl<'scope, 'env, F: Field> Evaluator<'scope, 'env, F> {
+    fn new(prefix: Vec<usize>, thunks: &'scope mut Vec<Thunk<'env, F>>) -> Self {
+        Self {
+            segments: vec![AnnotatedSegment::new(&prefix)],
+            thunks,
+            state: TraceScope {
+                available_b: None,
+                current_segment: 0,
+                routine_counter: 0,
+                dfs_prefix: prefix,
+            },
+        }
+    }
+}
+
+impl<F: Field> DriverScope<TraceScope> for Evaluator<'_, '_, F> {
     fn scope(&mut self) -> &mut TraceScope {
         &mut self.state
     }
 }
 
-impl<F: Field> DriverTypes for Evaluator<'_, F> {
+impl<F: Field> DriverTypes for Evaluator<'_, '_, F> {
     type ImplField = F;
     type ImplWire = ();
     type MaybeKind = Always<()>;
@@ -189,7 +226,7 @@ impl<F: Field> DriverTypes for Evaluator<'_, F> {
     type LCenforce = ();
 }
 
-impl<'a, F: Field> Driver<'a> for Evaluator<'a, F> {
+impl<'scope, 'env, F: Field> Driver<'env> for Evaluator<'scope, 'env, F> {
     type F = F;
     type Wire = ();
     const ONE: Self::Wire = ();
@@ -198,14 +235,14 @@ impl<'a, F: Field> Driver<'a> for Evaluator<'a, F> {
         // Packs two allocations into one multiplication gate when possible, enabling consecutive
         // allocations to share gates.
         if let Some(index) = self.state.available_b.take() {
-            let seg = &mut self.trace.segments[self.state.current_segment];
+            let seg = &mut self.segments[self.state.current_segment].segment;
             let a = seg.a[index];
             let b = value()?;
             seg.b[index] = b.value();
             seg.c[index] = a * b.value();
             Ok(())
         } else {
-            let index = self.trace.segments[self.state.current_segment].a.len();
+            let index = self.segments[self.state.current_segment].segment.a.len();
             self.mul(|| Ok((value()?, Coeff::Zero, Coeff::Zero)))?;
             self.state.available_b = Some(index);
             Ok(())
@@ -217,7 +254,7 @@ impl<'a, F: Field> Driver<'a> for Evaluator<'a, F> {
         values: impl Fn() -> Result<(Coeff<Self::F>, Coeff<Self::F>, Coeff<Self::F>)>,
     ) -> Result<((), (), ())> {
         let (a, b, c) = values()?;
-        let seg = &mut self.trace.segments[self.state.current_segment];
+        let seg = &mut self.segments[self.state.current_segment].segment;
         seg.a.push(a.value());
         seg.b.push(b.value());
         seg.c.push(c.value());
@@ -231,25 +268,62 @@ impl<'a, F: Field> Driver<'a> for Evaluator<'a, F> {
         Ok(())
     }
 
-    fn routine<Ro: Routine<Self::F> + 'a>(
+    fn routine<Ro: Routine<Self::F> + 'env>(
         &mut self,
         routine: Ro,
-        input: Bound<'a, Self, Ro::Input>,
-    ) -> Result<Bound<'a, Self, Ro::Output>> {
-        self.trace.push_segment();
-        let seg = self.trace.segments.len() - 1;
-        self.with_scope(
-            TraceScope {
-                available_b: None,
-                current_segment: seg,
-            },
-            |this| {
-                let mut dummy = Emulator::wireless();
-                let dummy_input = Ro::Input::map_gadget(&input, &mut dummy)?;
-                let aux = routine.predict(&mut dummy, &dummy_input)?.into_aux();
-                routine.execute(this, input, aux)
-            },
-        )
+        input: Bound<'env, Self, Ro::Input>,
+    ) -> Result<Bound<'env, Self, Ro::Output>> {
+        let prediction = {
+            let mut dummy = Emulator::wireless();
+            let input = input.map(&mut dummy)?;
+            routine.predict(&mut dummy, &input)?
+        };
+
+        let routine_index = self.state.routine_counter;
+        self.state.routine_counter += 1;
+
+        let mut child_prefix = self.state.dfs_prefix.clone();
+        child_prefix.push(routine_index);
+
+        match prediction {
+            Prediction::Known(predicted_output, aux) => {
+                let output = predicted_output.map(&mut Lifter::lift())?;
+                let input = input.map(&mut Lifter::lift())?.sendable();
+
+                self.thunks.push(Thunk(Box::new(move |thunks| {
+                    let mut eval = Evaluator::new(child_prefix, thunks);
+                    input
+                        .into_inner()
+                        .map(&mut Lifter::lift())
+                        .and_then(|input| routine.execute(&mut eval, input, aux))
+                        .map(|_| eval.segments)
+                })));
+
+                Ok(output)
+            }
+            Prediction::Unknown(aux) => {
+                self.segments.push(AnnotatedSegment::new(&child_prefix));
+
+                self.with_scope(
+                    TraceScope {
+                        available_b: None,
+                        current_segment: self.segments.len() - 1,
+                        routine_counter: 0,
+                        dfs_prefix: child_prefix,
+                    },
+                    |this| routine.execute(this, input, aux),
+                )
+            }
+        }
+    }
+}
+
+/// Sorts segments by DFS path and strips annotations.
+fn finish<F: Field>(mut segments: Vec<AnnotatedSegment<F>>) -> Trace<F> {
+    segments.sort_unstable_by(|a, b| a.dfs_path.cmp(&b.dfs_path));
+
+    Trace {
+        segments: segments.into_iter().map(|s| s.segment).collect(),
     }
 }
 
@@ -262,18 +336,43 @@ pub fn eval<'witness, F: Field, C: Circuit<F>>(
     circuit: &C,
     witness: C::Witness<'witness>,
 ) -> Result<(Trace<F>, C::Aux<'witness>)> {
-    let mut trace = Trace::new();
-    let aux = {
-        let mut dr = Evaluator {
-            trace: &mut trace,
-            state: TraceScope::default(),
-        };
-        let (io, aux) = circuit.witness(&mut dr, Always::maybe_just(|| witness))?;
-        io.write(&mut dr, &mut ())?;
+    let mut thunks = Vec::new();
 
-        aux.take()
-    };
-    Ok((trace, aux))
+    let (mut segments, aux) = {
+        let mut evaluator = Evaluator::new(Vec::new(), &mut thunks);
+
+        let aux = {
+            let (io, aux) = circuit.witness(&mut evaluator, Always::maybe_just(|| witness))?;
+            io.write(&mut evaluator, &mut ())?;
+            aux.take()
+        };
+
+        Ok((evaluator.segments, aux))
+    }?;
+
+    while let Some(thunk) = thunks.pop() {
+        segments.extend(thunk.0(&mut thunks)?);
+    }
+
+    Ok((finish(segments), aux))
+}
+
+struct Lifter<'scope, 'env, F: Field>(PhantomData<Evaluator<'scope, 'env, F>>);
+
+impl<'scope, 'env, F: Field> Lifter<'scope, 'env, F> {
+    fn lift() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<'dr, 'scope, 'env, F: Field, D: Driver<'dr, Wire = (), F = F>> FromDriver<'dr, 'env, D>
+    for Lifter<'scope, 'env, F>
+{
+    type NewDriver = Evaluator<'scope, 'env, F>;
+
+    fn convert_wire(&mut self, _: &()) -> Result<()> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
