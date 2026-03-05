@@ -86,6 +86,9 @@ code-review) layer additional rules on top of these.
 - Once a term is chosen for a concept, use it consistently throughout. Flag
   synonyms meaning the same thing within a document or module.
 - Defined terms (from a glossary or terminology appendix) take precedence.
+- Anaphoric references — a demonstrative + grouping term summarizing items
+  named in the immediately preceding text (e.g., "these primitives" after
+  "wires and witness data") — are not synonyms. Do not flag them.
 
 ## Capitalization
 
