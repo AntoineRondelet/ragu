@@ -9,7 +9,8 @@ use ff::Field;
 use ragu_arithmetic::Coeff;
 use ragu_core::{
     Error, Result,
-    drivers::{Driver, DriverTypes, FromDriver, emulator::Emulator},
+    convert::{CloneWires, EraseWires},
+    drivers::{Driver, DriverTypes, emulator::Emulator},
     gadgets::{Bound, Gadget},
     maybe::{Always, Maybe, MaybeKind},
     routines::{Prediction, Routine},
@@ -17,17 +18,16 @@ use ragu_core::{
 use ragu_primitives::GadgetExt;
 
 use alloc::{boxed::Box, vec, vec::Vec};
-use core::marker::PhantomData;
 
 use super::{
     Circuit, DriverScope, Rank, floor_planner::ConstraintSegment, metrics::SegmentRecord, registry,
     structured,
 };
 
-/// Deferred `execute()` for a Known-predicted routine.                                                                                                                                                                                            
-///                                                                                                            
-/// Created when `predict()` returns [`Known`](Prediction::Known), allowing                                                                                                                                                                        
-/// the main traversal to continue with the predicted output while deferring                                   
+/// Deferred `execute()` for a Known-predicted routine.
+///
+/// Created when `predict()` returns [`Known`](Prediction::Known), allowing
+/// the main traversal to continue with the predicted output while deferring
 /// the actual witness computation. When invoked, runs `execute()` in a fresh
 /// [`Evaluator`] and returns the resulting trace segments.
 struct Thunk<'env, F: Field>(
@@ -286,11 +286,7 @@ impl<'scope, 'env, F: Field> Driver<'env> for Evaluator<'scope, 'env, F> {
         routine: Ro,
         input: Bound<'env, Self, Ro::Input>,
     ) -> Result<Bound<'env, Self, Ro::Output>> {
-        let prediction = {
-            let mut dummy = Emulator::wireless();
-            let input = input.map(&mut dummy)?;
-            routine.predict(&mut dummy, &input)?
-        };
+        let prediction = Emulator::predict(&routine, &input)?;
 
         let routine_index = self.state.routine_counter;
         self.state.routine_counter += 1;
@@ -300,17 +296,15 @@ impl<'scope, 'env, F: Field> Driver<'env> for Evaluator<'scope, 'env, F> {
 
         match prediction {
             Prediction::Known(predicted_output, aux) => {
-                let output = predicted_output.map(&mut Lifter::lift())?;
+                let output = CloneWires::convert(&predicted_output)?;
                 // Remap the input gadget to a driver-independent representation,
                 // then wrap in `Sendable` to satisfy the `Send` bound on the
                 // thunk closure.
-                let input = input.map(&mut Lifter::lift())?.sendable();
+                let input = input.map(&mut EraseWires::default())?.sendable();
 
                 self.thunks.push(Thunk(Box::new(move |thunks| {
                     let mut eval = Evaluator::new(child_prefix, thunks);
-                    input
-                        .into_inner()
-                        .map(&mut Lifter::lift())
+                    CloneWires::convert(&input.into_inner())
                         .and_then(|input| routine.execute(&mut eval, input, aux))
                         // Discard the output gadget; we already have the predicted output.
                         .map(|_| {
@@ -347,30 +341,6 @@ impl<'scope, 'env, F: Field> Driver<'env> for Evaluator<'scope, 'env, F> {
                 )
             }
         }
-    }
-}
-
-/// [`FromDriver`] adapter that trivially converts `()` wires between any
-/// `Driver` and an [`Evaluator`].
-///
-/// Because every `Evaluator` wire is `()`, conversion is a no-op. The
-/// `'scope` and `'env` lifetimes tie the adapter to a particular
-/// `Evaluator` so the compiler can verify the remapped gadgets stay valid.
-struct Lifter<'scope, 'env, F: Field>(PhantomData<Evaluator<'scope, 'env, F>>);
-
-impl<'scope, 'env, F: Field> Lifter<'scope, 'env, F> {
-    fn lift() -> Self {
-        Self(PhantomData)
-    }
-}
-
-impl<'dr, 'scope, 'env, F: Field, D: Driver<'dr, Wire = (), F = F>> FromDriver<'dr, 'env, D>
-    for Lifter<'scope, 'env, F>
-{
-    type NewDriver = Evaluator<'scope, 'env, F>;
-
-    fn convert_wire(&mut self, _: &()) -> Result<()> {
-        Ok(())
     }
 }
 

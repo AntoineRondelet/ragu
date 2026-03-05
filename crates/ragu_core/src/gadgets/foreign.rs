@@ -7,7 +7,8 @@ use core::marker::PhantomData;
 
 use crate::{
     Result,
-    drivers::{Driver, FromDriver},
+    convert::WireMap,
+    drivers::Driver,
     gadgets::{Bound, Consistent, Gadget, GadgetKind},
 };
 
@@ -23,10 +24,14 @@ mod unit_impl {
     unsafe impl<F: Field> GadgetKind<F> for () {
         type Rebind<'dr, D: Driver<'dr, F = F>> = ();
 
-        fn map_gadget<'dr, 'new_dr, D: Driver<'dr, F = F>, ND: FromDriver<'dr, 'new_dr, D>>(
-            _: &Bound<'dr, D, Self>,
-            _: &mut ND,
-        ) -> Result<Bound<'new_dr, ND::NewDriver, Self>> {
+        fn map_gadget<
+            'src,
+            'dst,
+            WM: WireMap<F, Src: Driver<'src, F = F>, Dst: Driver<'dst, F = F>>,
+        >(
+            _: &Bound<'src, WM::Src, Self>,
+            _: &mut WM,
+        ) -> Result<Bound<'dst, WM::Dst, Self>> {
             Ok(())
         }
 
@@ -64,15 +69,19 @@ mod array_impl {
     unsafe impl<F: Field, G: GadgetKind<F>, const N: usize> GadgetKind<F> for [PhantomData<G>; N] {
         type Rebind<'dr, D: Driver<'dr, F = F>> = [Bound<'dr, D, G>; N];
 
-        fn map_gadget<'dr, 'new_dr, D: Driver<'dr, F = F>, ND: FromDriver<'dr, 'new_dr, D>>(
-            this: &Bound<'dr, D, Self>,
-            ndr: &mut ND,
-        ) -> Result<Bound<'new_dr, ND::NewDriver, Self>> {
+        fn map_gadget<
+            'src,
+            'dst,
+            WM: WireMap<F, Src: Driver<'src, F = F>, Dst: Driver<'dst, F = F>>,
+        >(
+            this: &Bound<'src, WM::Src, Self>,
+            wm: &mut WM,
+        ) -> Result<Bound<'dst, WM::Dst, Self>> {
             // TODO(ebfull): perhaps replace with core::array::try_from_fn when
             // stable (see https://github.com/rust-lang/rust/issues/89379)
             let mut result = Vec::with_capacity(N);
             for item in this.iter() {
-                result.push(G::map_gadget(item, ndr)?);
+                result.push(G::map_gadget(item, wm)?);
             }
             match result.try_into() {
                 Ok(arr) => Ok(arr),
@@ -122,11 +131,15 @@ mod pair_impl {
     {
         type Rebind<'dr, D: Driver<'dr, F = F>> = (Bound<'dr, D, G1>, Bound<'dr, D, G2>);
 
-        fn map_gadget<'dr, 'new_dr, D: Driver<'dr, F = F>, ND: FromDriver<'dr, 'new_dr, D>>(
-            this: &Bound<'dr, D, Self>,
-            ndr: &mut ND,
-        ) -> Result<Bound<'new_dr, ND::NewDriver, Self>> {
-            Ok((G1::map_gadget(&this.0, ndr)?, G2::map_gadget(&this.1, ndr)?))
+        fn map_gadget<
+            'src,
+            'dst,
+            WM: WireMap<F, Src: Driver<'src, F = F>, Dst: Driver<'dst, F = F>>,
+        >(
+            this: &Bound<'src, WM::Src, Self>,
+            wm: &mut WM,
+        ) -> Result<Bound<'dst, WM::Dst, Self>> {
+            Ok((G1::map_gadget(&this.0, wm)?, G2::map_gadget(&this.1, wm)?))
         }
 
         fn enforce_equal_gadget<
@@ -169,11 +182,15 @@ mod box_impl {
     unsafe impl<F: Field, G: GadgetKind<F>> GadgetKind<F> for PhantomData<Box<G>> {
         type Rebind<'dr, D: Driver<'dr, F = F>> = Box<Bound<'dr, D, G>>;
 
-        fn map_gadget<'dr, 'new_dr, D: Driver<'dr, F = F>, ND: FromDriver<'dr, 'new_dr, D>>(
-            this: &Bound<'dr, D, Self>,
-            ndr: &mut ND,
-        ) -> Result<Bound<'new_dr, ND::NewDriver, Self>> {
-            Ok(Box::new(G::map_gadget(this, ndr)?))
+        fn map_gadget<
+            'src,
+            'dst,
+            WM: WireMap<F, Src: Driver<'src, F = F>, Dst: Driver<'dst, F = F>>,
+        >(
+            this: &Bound<'src, WM::Src, Self>,
+            wm: &mut WM,
+        ) -> Result<Bound<'dst, WM::Dst, Self>> {
+            Ok(Box::new(G::map_gadget(this, wm)?))
         }
 
         fn enforce_equal_gadget<

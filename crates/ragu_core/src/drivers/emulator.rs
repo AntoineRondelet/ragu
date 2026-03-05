@@ -73,7 +73,8 @@ use core::marker::PhantomData;
 
 use crate::{
     Result,
-    drivers::{Coeff, DirectSum, Driver, DriverTypes, FromDriver, LinearExpression},
+    convert::{EraseWires, WireMap},
+    drivers::{Coeff, DirectSum, Driver, DriverTypes, DriverValue, LinearExpression},
     gadgets::{Bound, Gadget, GadgetKind},
     maybe::{Always, Empty, MaybeKind, Perhaps},
     routines::{Prediction, Routine},
@@ -209,13 +210,11 @@ impl<F: Field> Emulator<Wired<F>> {
             wires: Vec<F>,
         }
 
-        impl<F: Field> FromDriver<'_, '_, Emulator<Wired<F>>> for WireExtractor<F> {
-            type NewDriver = PhantomData<F>;
+        impl<F: Field> WireMap<F> for WireExtractor<F> {
+            type Src = Emulator<Wired<F>>;
+            type Dst = PhantomData<F>;
 
-            fn convert_wire(
-                &mut self,
-                wire: &WiredValue<F>,
-            ) -> Result<<Self::NewDriver as Driver<'_>>::Wire> {
+            fn convert_wire(&mut self, wire: &WiredValue<F>) -> Result<()> {
                 self.wires.push(wire.clone().value());
                 Ok(())
             }
@@ -251,6 +250,25 @@ impl<M: MaybeKind, F: Field> Emulator<Wireless<M, F>> {
     /// the existence of a witness.
     pub fn wireless() -> Self {
         Emulator(PhantomData)
+    }
+
+    /// Runs [`Routine::predict`] on a fresh wireless emulator, converting the
+    /// input gadget from the source driver automatically via [`EraseWires`].
+    ///
+    /// The source driver `D` must share the same [`MaybeKind`] as this emulator
+    /// so that witness availability is preserved across the conversion. Unlike
+    /// calling [`Routine::predict`] directly, this associated function handles
+    /// emulator construction and wire remapping in a single step.
+    pub fn predict<'dst, 'src, D, Ro>(
+        routine: &Ro,
+        input: &Bound<'src, D, Ro::Input>,
+    ) -> Result<Prediction<Bound<'dst, Self, Ro::Output>, DriverValue<Self, Ro::Aux<'dst>>>>
+    where
+        D: Driver<'src, F = F, MaybeKind = M>,
+        Ro: Routine<F>,
+    {
+        let input = input.map(&mut EraseWires::default())?;
+        routine.predict(&mut Self::wireless(), &input)
     }
 }
 
@@ -388,20 +406,11 @@ fn short_circuit_routine<'dr, D: Driver<'dr>, R: Routine<D::F> + 'dr>(
     }
 }
 
-/// Conversion utility useful for passing wireless gadgets into
-/// [`Routine::predict`] to fulfill type system obligations.
-impl<'dr, D: Driver<'dr>> FromDriver<'dr, '_, D> for Emulator<Wireless<D::MaybeKind, D::F>> {
-    type NewDriver = Self;
-
-    fn convert_wire(&mut self, _: &D::Wire) -> Result<()> {
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::Result;
+    use crate::convert::WireMap;
     use crate::drivers::{Coeff, Driver, LinearExpression};
     use crate::maybe::Always;
     use ff::Field;
@@ -437,17 +446,16 @@ mod tests {
         type Rebind<'dr, D: Driver<'dr, F = FieldType>> = TwoWires<'dr, D>;
 
         fn map_gadget<
-            'dr,
-            'new_dr,
-            D: Driver<'dr, F = FieldType>,
-            ND: crate::drivers::FromDriver<'dr, 'new_dr, D>,
+            'src,
+            'dst,
+            WM: WireMap<FieldType, Src: Driver<'src, F = FieldType>, Dst: Driver<'dst, F = FieldType>>,
         >(
-            this: &Bound<'dr, D, Self>,
-            ndr: &mut ND,
-        ) -> Result<Bound<'new_dr, ND::NewDriver, Self>> {
+            this: &Bound<'src, WM::Src, Self>,
+            wm: &mut WM,
+        ) -> Result<Bound<'dst, WM::Dst, Self>> {
             Ok(TwoWires {
-                a: ndr.convert_wire(&this.a)?,
-                b: ndr.convert_wire(&this.b)?,
+                a: wm.convert_wire(&this.a)?,
+                b: wm.convert_wire(&this.b)?,
                 _marker: core::marker::PhantomData,
             })
         }
