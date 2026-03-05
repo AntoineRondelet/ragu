@@ -41,7 +41,7 @@ Thanks to the strict requirements on implementations of
 [transform gadgets](index.md#transformations) between drivers. This is
 handled by the
 [`GadgetKind::map_gadget`](ragu_core::gadgets::GadgetKind::map_gadget)
-method implementation for every gadget, which simply translates the gadget's
+method implementation for every gadget, which translates the gadget's
 wires and witness information from one driver to another using the
 [`WireMap`][wiremap-trait] trait.
 

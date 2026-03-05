@@ -18,9 +18,9 @@
 //! * **Integration of witness evaluation**: Constraints can be written
 //!   alongside witness computation logic, even though drivers tend to reason
 //!   about one or the other. To reduce overhead, drivers specify a [`Maybe<T>`]
-//!   type (via the type alias [`DriverValue`]) which enables static analysis and
-//!   optimization of witness computation for a specific driver context. This
-//!   coupling with witness evaluation logic is a zero-cost abstraction.
+//!   type (via the type alias [`DriverValue`]) which enables static analysis
+//!   and optimization of witness computation for a specific driver context.
+//!   This coupling with witness evaluation logic is a zero-cost abstraction.
 //! * **Integration of in-circuit and out-of-circuit code**: Recursive proofs
 //!   require many algorithms to be executed both within and outside of
 //!   circuits, and these implementations must remain consistent for
@@ -40,9 +40,8 @@
 //! boundaries called [routines](crate::routines). In exchange for a slightly
 //! stricter API, users can give drivers flexibility in how circuit synthesis is
 //! performed---permitting aggressive parallelization, memoization and other
-//! optimizations. In order to achieve this,
-//! [`WireMap`](crate::convert::WireMap) is used to specify how wires can
-//! be translated from one driver to another.
+//! optimizations. Routines use [`WireMap`](crate::convert::WireMap) to
+//! translate wires from one driver to another during these conversions.
 
 pub mod emulator;
 mod linexp;

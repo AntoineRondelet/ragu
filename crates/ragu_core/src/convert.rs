@@ -1,26 +1,27 @@
-//! Wire conversion between drivers.
+//! Conversions that remap gadget wires from one [`Driver`] context to another.
 //!
-//! Routines execute circuit synthesis within well-defined abstraction
-//! boundaries and may need to move gadgets --- and their wires --- from one
-//! [`Driver`] context to another. For example, [`Routine::predict`] is
-//! evaluated on a [`Wireless`] [`Emulator`] so that no constraints
-//! are synthesized, but the input gadget originates from a concrete source
-//! driver. Without a uniform conversion mechanism, every call site would
-//! need ad-hoc remapping logic.
+//! [Routines](crate::routines) execute circuit synthesis within well-defined
+//! abstraction boundaries and may need to move gadgets (and their wires) from
+//! one [`Driver`] context to another. For example, [`Routine::predict`] is
+//! evaluated on a [`Wireless`] [`Emulator`] so that no constraints are
+//! synthesized, but the input gadget originates from a concrete source driver.
+//! Without a uniform conversion mechanism, every call site would need custom
+//! remapping logic.
 //!
 //! [`WireMap`] provides that mechanism: an implementor fixes a source and
-//! destination driver via associated types, then converts wires one at a
-//! time. Because [`WireMap`] is a separate trait rather than an associated
-//! type on [`GadgetKind`](crate::gadgets::GadgetKind), the same gadget kind
-//! can be remapped by many different conversion strategies (discarding wires,
-//! cloning them, recording them) without proliferating trait parameters.
+//! destination driver via associated types, then converts wires one at a time.
+//! Because [`WireMap`] is a separate trait rather than an associated type on
+//! [`GadgetKind`](crate::gadgets::GadgetKind), the same gadget kind can be
+//! remapped by many different conversion strategies (discarding wires, cloning
+//! them, recording them) without adding type parameters to [`GadgetKind`](
+//! crate::gadgets::GadgetKind).
 //!
 //! ### Public API
 //!
-//! - [`WireMap`] --- the core conversion trait.
-//! - [`CloneWires`] --- a [`WireMap`] that clones wires unchanged.
-//! - [`EraseWires`] --- a [`WireMap`] that discards wire values for use
-//!   with wireless emulators.
+//! - [`WireMap`], the core conversion trait.
+//! - [`CloneWires`], a [`WireMap`] that clones wires unchanged.
+//! - [`EraseWires`], a [`WireMap`] that discards wire values for use with
+//!   wireless emulators.
 //!
 //! [`Routine::predict`]: crate::routines::Routine::predict
 
@@ -37,10 +38,10 @@ use crate::{
 /// Conversion context that maps wires from one driver to another.
 ///
 /// Each implementor fixes a specific source and destination via associated
-/// types. When the same conversion logic applies to a whole family of
-/// source types, use a wrapper struct parameterized by the source --- each
-/// distinct source then maps to a fixed destination through a single blanket
-/// impl. See [`EraseWires`] for an example.
+/// types. When the same conversion logic applies to a whole family of source
+/// types, a wrapper struct parameterized by the source allows each distinct
+/// source to map to a fixed destination through a single blanket impl. See
+/// [`EraseWires`] for an example.
 pub trait WireMap<F: Field> {
     /// The source [`DriverTypes`] whose wires are being converted.
     type Src: DriverTypes<ImplField = F>;
@@ -57,9 +58,10 @@ pub trait WireMap<F: Field> {
 
 /// A [`WireMap`] that passes wires through unchanged by cloning them.
 ///
-/// Useful when the source and destination share the same wire type, so
-/// conversion is a bitwise clone --- for example, when rebinding a gadget
-/// to a new lifetime without changing its wire representation.
+/// The source and destination must share the same wire type, so conversion
+/// calls [`.clone()`](Clone::clone) on each wire. This is useful when
+/// rebinding a gadget to a new lifetime without changing its wire
+/// representation.
 pub struct CloneWires<Src: DriverTypes, Dst: DriverTypes>(PhantomData<(Src, Dst)>);
 
 impl<Src: DriverTypes, Dst: DriverTypes> Default for CloneWires<Src, Dst> {
@@ -114,11 +116,10 @@ where
 /// A [`WireMap`] that maps any driver's wires to `()`, discarding wire
 /// values for use with `Emulator<Wireless<D::MaybeKind, D::ImplField>>`.
 ///
-/// Useful for passing a gadget from a concrete driver into
-/// [`Routine::predict`], which operates on a [`Wireless`] emulator.
-/// A wrapper struct is required because
-/// [`WireMap`] uses associated types for source and destination; different
-/// source drivers therefore need distinct implementors.
+/// This conversion is used to pass a gadget from a concrete driver into
+/// [`Routine::predict`], which operates on a [`Wireless`] emulator. The
+/// wrapper struct is parameterized by the source driver so that each source
+/// type gets its own blanket [`WireMap`] impl.
 ///
 /// [`Routine::predict`]: crate::routines::Routine::predict
 pub struct EraseWires<D: DriverTypes>(PhantomData<D>);
