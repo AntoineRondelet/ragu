@@ -253,7 +253,7 @@ impl<M: MaybeKind, F: Field> Emulator<Wireless<M, F>> {
     }
 
     /// Runs [`Routine::predict`] on a fresh wireless emulator, converting the
-    /// input gadget from the source driver automatically via [`StripWires`].
+    /// input gadget from the source driver automatically via [`StripWires`](crate::convert::StripWires).
     ///
     /// The source driver `D` must share the same [`MaybeKind`] as this emulator
     /// so that witness availability is preserved across the conversion. Unlike

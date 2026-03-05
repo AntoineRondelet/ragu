@@ -42,8 +42,7 @@ use crate::{
 /// Each implementor fixes a specific source and destination driver via
 /// associated types. When the same conversion logic applies to multiple
 /// source/destination pairs, use a wrapper struct parameterized by those
-/// types. See [`WirelessFrom`](crate::drivers::emulator::WirelessFrom)
-/// for an example.
+/// types. See [`StripWires`] for an example.
 ///
 /// `Src` and `Dst` are bounded by [`DriverTypes`] here so that
 /// `convert_wire` can name their wire types. The stronger [`Driver`] bound
@@ -101,7 +100,7 @@ where
     /// // Inferred from context:
     /// let output: Bound<'_, DstDriver, _> = CloneWires::remap(&gadget)?;
     /// // Explicit:
-    /// let output = CloneWires::<_, DstDriver>::convert(&gadget)?;
+    /// let output = CloneWires::<_, DstDriver>::remap(&gadget)?;
     /// ```
     pub fn remap<'src, 'dst, G: Gadget<'src, Src>>(gadget: &G) -> Result<Bound<'dst, Dst, G::Kind>>
     where
@@ -132,7 +131,7 @@ where
 /// values for use with `Emulator<Wireless<D::MaybeKind, D::ImplField>>`.
 ///
 /// This conversion is used to pass a gadget from a concrete driver into
-/// [`Routine::predict`], which operates on a [`Wireless`] emulator. The
+/// [`Routine::predict`], which operates on a [`Wireless`](crate::drivers::emulator::Wireless) emulator. The
 /// wrapper struct is parameterized by the source driver so that each source
 /// type gets its own blanket [`WireMap`] impl.
 ///
