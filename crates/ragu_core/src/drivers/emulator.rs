@@ -253,7 +253,7 @@ impl<M: MaybeKind, F: Field> Emulator<Wireless<M, F>> {
     }
 
     /// Runs [`Routine::predict`] on a fresh wireless emulator, converting the
-    /// input gadget from the source driver automatically via [`StripWires`](crate::convert::StripWires).
+    /// input gadget from the source driver automatically via [`StripWires`].
     ///
     /// The source driver `D` must share the same [`MaybeKind`] as this emulator
     /// so that witness availability is preserved across the conversion. Unlike
@@ -788,7 +788,7 @@ mod tests {
 
             fn convert_wire(&mut self, _: &()) -> Result<()> {
                 self.call_count += 1;
-                if self.call_count % 2 == 0 {
+                if self.call_count.is_multiple_of(2) {
                     Err(crate::Error::InvalidWitness("even call".into()))
                 } else {
                     Ok(())

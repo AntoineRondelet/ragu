@@ -4,7 +4,7 @@
 //! driver context to another while preserving its structure and semantics is a
 //! fundamental operation. Any code that operates across multiple driver
 //! contexts will need this: [routines](crate::routines) translate their inputs
-//! onto [`Wireless`](crate::drivers::emulator::Wireless) [`Emulator`](crate::drivers::emulator::Emulator)s
+//! onto [`Wireless`] [`Emulator`]s
 //! for prediction, wire-counting passes discard wire values entirely, and driver implementations may need
 //! to inject or rewrite wires during circuit analysis.
 //!
@@ -131,7 +131,7 @@ where
 /// values for use with `Emulator<Wireless<D::MaybeKind, D::ImplField>>`.
 ///
 /// This conversion is used to pass a gadget from a concrete driver into
-/// [`Routine::predict`], which operates on a [`Wireless`](crate::drivers::emulator::Wireless) emulator. The
+/// [`Routine::predict`], which operates on a [`Wireless`] emulator. The
 /// wrapper struct is parameterized by the source driver so that each source
 /// type gets its own blanket [`WireMap`] impl.
 ///
