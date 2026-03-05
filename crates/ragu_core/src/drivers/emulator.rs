@@ -267,7 +267,7 @@ impl<M: MaybeKind, F: Field> Emulator<Wireless<M, F>> {
         D: Driver<'src, F = F, MaybeKind = M>,
         Ro: Routine<F>,
     {
-        let input = StripWires::strip(input)?;
+        let input = StripWires::remap(input)?;
         routine.predict(&mut Self::wireless(), &input)
     }
 }

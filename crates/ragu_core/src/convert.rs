@@ -70,6 +70,19 @@ pub trait WireMap<F: Field> {
         &mut self,
         wire: &<Self::Src as DriverTypes>::ImplWire,
     ) -> Result<<Self::Dst as DriverTypes>::ImplWire>;
+
+    /// Maps a gadget from [`Src`](Self::Src) to [`Dst`](Self::Dst) using a
+    /// default-constructed instance of this wire map.
+    fn remap<'src, 'dst, G: Gadget<'src, Self::Src>>(
+        gadget: &G,
+    ) -> Result<Bound<'dst, Self::Dst, G::Kind>>
+    where
+        Self: Default,
+        Self::Src: Driver<'src, F = F>,
+        Self::Dst: Driver<'dst, F = F>,
+    {
+        gadget.map(&mut Self::default())
+    }
 }
 
 /// A [`WireMap`] that passes wires through unchanged by cloning them.
@@ -83,31 +96,6 @@ pub struct CloneWires<Src: DriverTypes, Dst: DriverTypes>(PhantomData<(Src, Dst)
 impl<Src: DriverTypes, Dst: DriverTypes> Default for CloneWires<Src, Dst> {
     fn default() -> Self {
         CloneWires(PhantomData)
-    }
-}
-
-impl<F: Field, Src, Dst> CloneWires<Src, Dst>
-where
-    Src: DriverTypes<ImplField = F>,
-    Dst: DriverTypes<ImplField = F, ImplWire = Src::ImplWire>,
-{
-    /// Maps a gadget to a destination driver by cloning its wires.
-    ///
-    /// `Src` is inferred from the gadget; `Dst` can be inferred from the
-    /// return context or spelled out explicitly:
-    ///
-    /// ```ignore
-    /// // Inferred from context:
-    /// let output: Bound<'_, DstDriver, _> = CloneWires::remap(&gadget)?;
-    /// // Explicit:
-    /// let output = CloneWires::<_, DstDriver>::remap(&gadget)?;
-    /// ```
-    pub fn remap<'src, 'dst, G: Gadget<'src, Src>>(gadget: &G) -> Result<Bound<'dst, Dst, G::Kind>>
-    where
-        Src: Driver<'src, F = F>,
-        Dst: Driver<'dst, F = F, Wire = Src::Wire>,
-    {
-        gadget.map(&mut Self::default())
     }
 }
 
@@ -141,21 +129,6 @@ pub struct StripWires<D: DriverTypes>(PhantomData<D>);
 impl<D: DriverTypes> Default for StripWires<D> {
     fn default() -> Self {
         StripWires(PhantomData)
-    }
-}
-
-impl<F: Field, D> StripWires<D>
-where
-    D: DriverTypes<ImplField = F>,
-{
-    /// Maps a gadget to a wireless emulator by discarding its wires.
-    pub fn strip<'src, 'dst, G: Gadget<'src, D>>(
-        gadget: &G,
-    ) -> Result<Bound<'dst, Emulator<Wireless<D::MaybeKind, F>>, G::Kind>>
-    where
-        D: Driver<'src, F = F>,
-    {
-        gadget.map(&mut Self::default())
     }
 }
 
