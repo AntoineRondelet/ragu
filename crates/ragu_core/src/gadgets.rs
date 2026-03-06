@@ -78,6 +78,10 @@
 //! Gadgets can be composed of other gadgets by definition. Gadgets can even be
 //! polymorphic over gadgets, and some gadgets are even composed of gadgets that
 //! are instantiated with different drivers.
+//!
+//! See also the [book] for a user-oriented introduction to gadgets.
+//!
+//! [book]: https://tachyon.z.cash/ragu/guide/gadgets/
 
 mod foreign;
 
@@ -333,20 +337,3 @@ pub use ragu_macros::Gadget;
 /// macro that it should perform the substitution without qualifications, which
 /// works fine in most cases.
 pub use ragu_macros::gadget_kind as Kind;
-
-/// Enforces a gadget's internal constraints on existing wires.
-///
-/// Some gadgets require internal invariants for correctness; a `Point` must
-/// satisfy its curve equation, a `Boolean` must be 0 or 1. This trait enforces
-/// those constraints on wires allocated elsewhere, separating allocation from
-/// constraint enforcement.
-///
-/// Gadgets without internal constraints (like `Element`) implement this as a
-/// no-op. Composite gadgets delegate to their fields.
-pub trait Consistent<'dr, D: Driver<'dr>>: Gadget<'dr, D> {
-    /// Enforce internal consistency constraints on this gadget's wires.
-    fn enforce_consistent(&self, dr: &mut D) -> Result<()>;
-}
-
-/// Derives [`Consistent`] by calling `enforce_consistent` on `#[ragu(gadget)]` fields.
-pub use ragu_macros::Consistent;
