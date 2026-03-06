@@ -386,13 +386,7 @@ pub fn eval<'witness, F: Field, C: Circuit<F>>(
 
     // Collect segments from spawned Known-predicted routines, draining
     // all deferred execute() calls that completed during the scope.
-    let batches: Vec<_> = rx.into_iter().collect();
-    let extra: usize = batches
-        .iter()
-        .map(|b| b.as_ref().map_or(0, |v| v.len()))
-        .sum();
-    segments.reserve(extra);
-    for batch in batches {
+    for batch in rx {
         segments.extend(batch?);
     }
 
