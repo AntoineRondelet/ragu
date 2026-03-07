@@ -540,4 +540,14 @@ mod tests {
         }
         .assert_complete();
     }
+
+    #[test]
+    #[should_panic(expected = "covered by multiple circuits")]
+    fn coverage_catches_overlap() {
+        let mut cov = Coverage::default();
+        // Simulate first circuit covering `w`.
+        unified_coverage_cover!(Element, cov, true, w);
+        // Simulate second circuit also covering `w`.
+        unified_coverage_cover!(Element, cov, true, w);
+    }
 }
