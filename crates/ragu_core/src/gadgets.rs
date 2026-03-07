@@ -170,9 +170,7 @@ pub trait Gadget<'dr, D: Driver<'dr>>: Clone {
 ///
 /// The [`Gadget::Kind`] associated type is used to specify the driver-agnostic
 /// _kind_ of a gadget, using this trait to specify how gadgets can have their
-/// driver-specific components mapped to a rebound gadget type. This type must
-/// be `'static` so that drivers can use dynamic typing to differentiate between
-/// (otherwise opaque) gadgets.
+/// driver-specific components mapped to a rebound gadget type.
 ///
 /// Implementations of this trait define a generic associated type
 /// [`Rebind`](GadgetKind::Rebind) which dictates the type of the gadget when
@@ -180,6 +178,15 @@ pub trait Gadget<'dr, D: Driver<'dr>>: Clone {
 /// `Rebind<'dr, D1>` of one driver `D1` can be translated into a gadget
 /// `Rebind<'dr, D2>` for another driver `D2`. The mapping can leverage the
 /// [`WireMap`] trait to convert wires.
+///
+/// # `'static` / `Any` bound
+///
+/// This type must be `'static` so that drivers can use dynamic typing to
+/// differentiate between (otherwise opaque) gadgets. Specifically, the
+/// [`Any`](core::any::Any) supertrait bound ensures that [`GadgetKind`] types
+/// are `'static` and can therefore be used as type-level keys, and it enables
+/// [`TypeId`](core::any::Any::type_id)-based dispatch for driver optimizations
+/// such as [routine](crate::routines) memoization and caching.
 ///
 /// # Safety
 ///
