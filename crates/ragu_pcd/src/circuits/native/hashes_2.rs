@@ -167,18 +167,20 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize, FP: fold_revdot::Parameters>
         let mut unified_output = OutputBuilder::new(witness.map(|w| w.unified));
 
         // Resume transcript from saved state (error_m already absorbed in hashes_1)
-        // and squeeze mu (first challenge from error_m absorption)
-        let mut transcript = Transcript::resume_from_state(
+        // and squeeze mu, nu (challenges from error_m absorption)
+        let mut resumed = Transcript::resume_from_state(
             dr,
             error_n.sponge_state,
             C::circuit_poseidon(self.params),
         );
-        let mu = transcript.challenge(dr)?;
+        let mu = resumed.challenge(dr)?;
         unified_output.mu.set(mu);
 
-        // Squeeze nu (second challenge from error_m absorption)
-        let nu = transcript.challenge(dr)?;
+        let nu = resumed.challenge(dr)?;
         unified_output.nu.set(nu);
+
+        // Transition back to absorb mode for the rest of the transcript
+        let mut transcript = resumed.into_transcript();
 
         // Derive (mu_prime, nu_prime) by absorbing nested_error_n_commitment
         let (mu_prime, nu_prime) = {

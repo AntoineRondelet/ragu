@@ -17,7 +17,9 @@
 //!
 //! // Save/resume for multi-circuit protocols
 //! let state = transcript.save_state(dr)?;
-//! let mut transcript = Transcript::resume_from_state(dr, state, params);
+//! let mut resumed = Transcript::resume_from_state(dr, state, params);
+//! let challenge = resumed.challenge(dr)?; // must squeeze first
+//! let mut transcript = resumed.into_transcript(); // then can absorb again
 //! ```
 
 use ff::PrimeField;
@@ -93,22 +95,45 @@ impl<'dr, D: Driver<'dr>, P: PoseidonPermutation<D::F>> Transcript<'dr, D, P> {
         self.sponge.save_state(dr)
     }
 
-    /// Resumes transcript from saved state.
+    /// Resumes a transcript from saved state in squeeze-only mode.
     ///
-    /// The resumed transcript is in **squeeze mode**, ready to output challenges
-    /// via [`Self::challenge`]. You can either:
-    /// - Squeeze challenges from previously-absorbed data first, then absorb new messages
-    /// - Absorb additional messages immediately (transitions back to absorb mode)
-    ///
-    /// Note: Calling `write()` before `challenge()` transitions back to absorb mode.
-    /// Any remaining squeeze capacity from the saved state becomes inaccessible.
+    /// Returns a [`ResumedTranscript`] that only permits squeezing challenges.
+    /// Call [`ResumedTranscript::into_transcript`] to transition back to a full
+    /// transcript that supports absorbing.
     pub(crate) fn resume_from_state(
         dr: &mut D,
         state: TranscriptState<'dr, D, P>,
         params: &'dr P,
-    ) -> Self {
+    ) -> ResumedTranscript<'dr, D, P> {
         let sponge = Sponge::resume(dr, state, params);
-        Transcript { sponge, params }
+        ResumedTranscript { sponge, params }
+    }
+}
+
+/// A resumed transcript restricted to squeeze-only mode.
+///
+/// Created by [`Transcript::resume_from_state`]. The saved state has buffered
+/// rate values ready to be squeezed; exposing only [`challenge`][Self::challenge]
+/// prevents the caller from accidentally absorbing (which would silently discard
+/// those values). Call [`into_transcript`][Self::into_transcript] to transition
+/// back to a full [`Transcript`] that supports absorbing.
+pub(crate) struct ResumedTranscript<'dr, D: Driver<'dr>, P: PoseidonPermutation<D::F>> {
+    sponge: Sponge<'dr, D, P>,
+    params: &'dr P,
+}
+
+impl<'dr, D: Driver<'dr>, P: PoseidonPermutation<D::F>> ResumedTranscript<'dr, D, P> {
+    /// Squeezes a single field element challenge.
+    pub(crate) fn challenge(&mut self, dr: &mut D) -> Result<Element<'dr, D>> {
+        self.sponge.squeeze(dr)
+    }
+
+    /// Transitions back to a full transcript that supports absorbing.
+    pub(crate) fn into_transcript(self) -> Transcript<'dr, D, P> {
+        Transcript {
+            sponge: self.sponge,
+            params: self.params,
+        }
     }
 }
 
@@ -175,9 +200,9 @@ mod tests {
             .save_state(&mut dr)
             .expect("save_state should succeed");
 
-        let mut transcript2 =
+        let mut resumed =
             Transcript::resume_from_state(&mut dr, state, Pasta::circuit_poseidon(params));
-        let challenge2 = transcript2.challenge(&mut dr)?;
+        let challenge2 = resumed.challenge(&mut dr)?;
 
         // Both flows should produce the same challenge
         assert_eq!(*challenge1.value().take(), *challenge2.value().take());
