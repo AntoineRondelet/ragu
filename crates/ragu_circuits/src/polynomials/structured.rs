@@ -213,12 +213,15 @@ impl<F: Field, R: Rank> Polynomial<F, R> {
         result
     }
 
-    /// Compute a commitment to this polynomial using the provided generators.
-    pub fn commit<C: CurveAffine<ScalarExt = F>>(
+    /// Compute a commitment to this polynomial in projective form. Use
+    /// [`batch_to_affine`](ragu_arithmetic::batch_to_affine) to efficiently
+    /// convert multiple projective commitments to affine with a single
+    /// field inversion.
+    pub fn commit_projective<C: CurveAffine<ScalarExt = F>>(
         &self,
         generators: &impl ragu_arithmetic::FixedGenerators<C>,
         blind: F,
-    ) -> C {
+    ) -> C::Curve {
         self.assert_bounds();
 
         assert!(generators.g().len() >= R::num_coeffs()); // TODO(ebfull)
@@ -243,7 +246,15 @@ impl<F: Field, R: Rank> Polynomial<F, R> {
                 .chain(d_start.iter().take(self.d.len()))
                 .chain(Some(generators.h())),
         )
-        .into() // TODO(ebfull)
+    }
+
+    /// Compute a commitment to this polynomial using the provided generators.
+    pub fn commit<C: CurveAffine<ScalarExt = F>>(
+        &self,
+        generators: &impl ragu_arithmetic::FixedGenerators<C>,
+        blind: F,
+    ) -> C {
+        self.commit_projective(generators, blind).into()
     }
 
     /// Reduce this polynomial into its unstructured representation,
