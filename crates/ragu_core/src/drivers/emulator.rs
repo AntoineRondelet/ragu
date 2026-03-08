@@ -179,7 +179,7 @@ impl<F: Field> Emulator<Wired<F>> {
         f: impl FnOnce(&mut Self, Always<W>) -> Result<R>,
     ) -> Result<R> {
         let mut dr = Self::extractor();
-        dr.with(witness, f)
+        dr.try_just(witness, f)
     }
 }
 
@@ -232,13 +232,13 @@ impl<F: Field> Emulator<Wireless<Always<()>, F>> {
         f: impl FnOnce(&mut Self, Always<W>) -> Result<R>,
     ) -> Result<R> {
         let mut dr = Self::execute();
-        dr.with(witness, f)
+        dr.try_just(witness, f)
     }
 }
 
 impl<M: Mode<F = F>, F: Field> Emulator<M> {
     /// Helper utility for executing a closure with this [`Emulator`].
-    fn with<R, W: Send>(
+    fn try_just<R, W: Send>(
         &mut self,
         witness: W,
         f: impl FnOnce(&mut Self, Perhaps<M::MaybeKind, W>) -> Result<R>,
@@ -926,15 +926,15 @@ mod tests {
     }
 
     #[test]
-    fn wired_with_ok_returns_value() -> Result<()> {
-        let val = <Emulator<Wired<F>> as Driver>::with(|| Ok(42u64))?;
+    fn wired_try_just_ok_returns_value() -> Result<()> {
+        let val = <Emulator<Wired<F>> as Driver>::try_just(|| Ok(42u64))?;
         assert_eq!(val.take(), 42);
         Ok(())
     }
 
     #[test]
-    fn wired_with_err_propagates() {
-        let result = <Emulator<Wired<F>> as Driver>::with(|| -> Result<u64> {
+    fn wired_try_just_err_propagates() {
+        let result = <Emulator<Wired<F>> as Driver>::try_just(|| -> Result<u64> {
             Err(crate::Error::InvalidWitness("test".into()))
         });
         assert!(result.is_err());
@@ -955,9 +955,9 @@ mod tests {
     }
 
     #[test]
-    fn wireless_counter_with_err_swallowed() -> Result<()> {
+    fn wireless_counter_try_just_err_swallowed() -> Result<()> {
         let _: crate::maybe::Empty =
-            <Emulator<Wireless<crate::maybe::Empty, F>> as Driver>::with(|| -> Result<()> {
+            <Emulator<Wireless<crate::maybe::Empty, F>> as Driver>::try_just(|| -> Result<()> {
                 Err(crate::Error::InvalidWitness("swallowed".into()))
             })?;
         Ok(())
