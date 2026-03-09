@@ -68,8 +68,8 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         let native_blind = C::CircuitField::random(&mut *rng);
         let host_gen = C::host_generators(self.params);
         let [registry_wy_commitment, native_commitment] = ragu_arithmetic::batch_to_affine([
-            registry_wy_poly.commit_projective(host_gen, registry_wy_blind),
-            native_rx.commit_projective(host_gen, native_blind),
+            registry_wy_poly.commit(host_gen, registry_wy_blind),
+            native_rx.commit(host_gen, native_blind),
         ]);
 
         let nested_error_m_witness = nested::stages::error_m::Witness {
@@ -79,7 +79,8 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         let nested_rx =
             nested::stages::error_m::Stage::<C::HostCurve, R>::rx(&nested_error_m_witness)?;
         let nested_blind = C::ScalarField::random(&mut *rng);
-        let nested_commitment = nested_rx.commit(C::nested_generators(self.params), nested_blind);
+        let nested_commitment =
+            nested_rx.commit_to_affine(C::nested_generators(self.params), nested_blind);
 
         Ok((
             proof::ErrorM {

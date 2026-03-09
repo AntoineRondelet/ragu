@@ -141,11 +141,11 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
             full_collapse_rx_commitment,
             compute_v_rx_commitment,
         ] = ragu_arithmetic::batch_to_affine([
-            hashes_1_rx.commit_projective(host_gen, hashes_1_rx_blind),
-            hashes_2_rx.commit_projective(host_gen, hashes_2_rx_blind),
-            partial_collapse_rx.commit_projective(host_gen, partial_collapse_rx_blind),
-            full_collapse_rx.commit_projective(host_gen, full_collapse_rx_blind),
-            compute_v_rx.commit_projective(host_gen, compute_v_rx_blind),
+            hashes_1_rx.commit(host_gen, hashes_1_rx_blind),
+            hashes_2_rx.commit(host_gen, hashes_2_rx_blind),
+            partial_collapse_rx.commit(host_gen, partial_collapse_rx_blind),
+            full_collapse_rx.commit(host_gen, full_collapse_rx_blind),
+            compute_v_rx.commit(host_gen, compute_v_rx_blind),
         ]);
 
         Ok(proof::InternalCircuits {

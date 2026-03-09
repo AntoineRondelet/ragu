@@ -73,8 +73,8 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         let b_blind = C::CircuitField::random(&mut *rng);
         let host_gen = C::host_generators(self.params);
         let [a_commitment, b_commitment] = ragu_arithmetic::batch_to_affine([
-            a_poly.commit_projective(host_gen, a_blind),
-            b_poly.commit_projective(host_gen, b_blind),
+            a_poly.commit(host_gen, a_blind),
+            b_poly.commit(host_gen, b_blind),
         ]);
 
         let c = a_poly.revdot(&b_poly);
@@ -85,7 +85,8 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         };
         let nested_rx = nested::stages::ab::Stage::<C::HostCurve, R>::rx(&nested_ab_witness)?;
         let nested_blind = C::ScalarField::random(&mut *rng);
-        let nested_commitment = nested_rx.commit(C::nested_generators(self.params), nested_blind);
+        let nested_commitment =
+            nested_rx.commit_to_affine(C::nested_generators(self.params), nested_blind);
 
         Ok(proof::AB {
             a_poly,
