@@ -2,7 +2,7 @@ use ff::Field;
 use ragu_core::maybe::Always;
 use ragu_core::{
     Result,
-    drivers::{Driver, DriverValue},
+    drivers::{Driver, DriverValue, LinearExpression},
     gadgets::{Bound, Kind},
     maybe::Maybe,
     routines::{Prediction, Routine},
@@ -171,6 +171,71 @@ impl Routine<Fp> for Duplicate {
         _aux: DriverValue<D, Self::Aux<'dr>>,
     ) -> Result<Bound<'dr, D, Self::Output>> {
         Ok((input.clone(), input))
+    }
+
+    fn predict<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        _input: &Bound<'dr, D, Self::Input>,
+    ) -> Result<Prediction<Bound<'dr, D, Self::Output>, DriverValue<D, Self::Aux<'dr>>>> {
+        Ok(Prediction::Unknown(D::just(|| ())))
+    }
+}
+
+/// Passthrough — returns input unchanged. No constraints.
+///
+/// With [`DropFirst`], forms a pair whose `(scalar, mul_count,
+/// linear_count)` triples are identical: paired allocation packs 1 and
+/// 2 input wires into the same gate count during the uncounted input
+/// remap, so the geometric sequences reach the same state. Only the
+/// `TypeId` of `Input` distinguishes them.
+#[derive(Clone)]
+struct Passthrough;
+
+impl Routine<Fp> for Passthrough {
+    type Input = Kind![Fp; Element<'_, _>];
+    type Output = Kind![Fp; Element<'_, _>];
+    type Aux<'dr> = ();
+
+    fn execute<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        input: Bound<'dr, D, Self::Input>,
+        _aux: DriverValue<D, Self::Aux<'dr>>,
+    ) -> Result<Bound<'dr, D, Self::Output>> {
+        Ok(input)
+    }
+
+    fn predict<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        _input: &Bound<'dr, D, Self::Input>,
+    ) -> Result<Prediction<Bound<'dr, D, Self::Output>, DriverValue<D, Self::Aux<'dr>>>> {
+        Ok(Prediction::Unknown(D::just(|| ())))
+    }
+}
+
+/// Takes two inputs, returns the first. No constraints.
+///
+/// Paired with [`Passthrough`]: both have zero body constraints and
+/// identical Horner scalars (the untouched seed `h`), but different
+/// `Input` types.
+#[derive(Clone)]
+struct DropFirst;
+
+impl Routine<Fp> for DropFirst {
+    type Input = Kind![Fp; (Element<'_, _>, Element<'_, _>)];
+    type Output = Kind![Fp; Element<'_, _>];
+    type Aux<'dr> = ();
+
+    fn execute<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        input: Bound<'dr, D, Self::Input>,
+        _aux: DriverValue<D, Self::Aux<'dr>>,
+    ) -> Result<Bound<'dr, D, Self::Output>> {
+        let (a, _b) = input;
+        Ok(a)
     }
 
     fn predict<'dr, D: Driver<'dr, F = Fp>>(
@@ -726,6 +791,471 @@ impl Routine<Fp> for DelegateAllocEnforceFirst {
     }
 }
 
+/// Three input wires, returns first. Paired with [`PassthroughQuad`]:
+/// 3 and 4 wires produce identical post-remap state due to paired allocation.
+#[derive(Clone)]
+struct PassthroughTriple;
+
+impl Routine<Fp> for PassthroughTriple {
+    type Input = Kind![Fp; (Element<'_, _>, (Element<'_, _>, Element<'_, _>))];
+    type Output = Kind![Fp; Element<'_, _>];
+    type Aux<'dr> = ();
+
+    fn execute<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        input: Bound<'dr, D, Self::Input>,
+        _aux: DriverValue<D, Self::Aux<'dr>>,
+    ) -> Result<Bound<'dr, D, Self::Output>> {
+        let (a, _) = input;
+        Ok(a)
+    }
+
+    fn predict<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        _input: &Bound<'dr, D, Self::Input>,
+    ) -> Result<Prediction<Bound<'dr, D, Self::Output>, DriverValue<D, Self::Aux<'dr>>>> {
+        Ok(Prediction::Unknown(D::just(|| ())))
+    }
+}
+
+/// Four input wires, returns first. Paired with [`PassthroughTriple`].
+#[derive(Clone)]
+struct PassthroughQuad;
+
+impl Routine<Fp> for PassthroughQuad {
+    type Input = Kind![Fp; ((Element<'_, _>, Element<'_, _>), (Element<'_, _>, Element<'_, _>))];
+    type Output = Kind![Fp; Element<'_, _>];
+    type Aux<'dr> = ();
+
+    fn execute<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        input: Bound<'dr, D, Self::Input>,
+        _aux: DriverValue<D, Self::Aux<'dr>>,
+    ) -> Result<Bound<'dr, D, Self::Output>> {
+        let ((a, _), _) = input;
+        Ok(a)
+    }
+
+    fn predict<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        _input: &Bound<'dr, D, Self::Input>,
+    ) -> Result<Prediction<Bound<'dr, D, Self::Output>, DriverValue<D, Self::Aux<'dr>>>> {
+        Ok(Prediction::Unknown(D::just(|| ())))
+    }
+}
+
+/// Trivial enforce_zero (empty LC), returns input unchanged.
+#[derive(Clone)]
+struct TrivialEnforce;
+
+impl Routine<Fp> for TrivialEnforce {
+    type Input = Kind![Fp; Element<'_, _>];
+    type Output = Kind![Fp; Element<'_, _>];
+    type Aux<'dr> = ();
+
+    fn execute<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        dr: &mut D,
+        input: Bound<'dr, D, Self::Input>,
+        _aux: DriverValue<D, Self::Aux<'dr>>,
+    ) -> Result<Bound<'dr, D, Self::Output>> {
+        dr.enforce_zero(|lc| lc)?;
+        Ok(input)
+    }
+
+    fn predict<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        _input: &Bound<'dr, D, Self::Input>,
+    ) -> Result<Prediction<Bound<'dr, D, Self::Output>, DriverValue<D, Self::Aux<'dr>>>> {
+        Ok(Prediction::Unknown(D::just(|| ())))
+    }
+}
+
+/// Trivial enforce_zero (empty LC) with pair input, drops second.
+#[derive(Clone)]
+struct TrivialEnforcePair;
+
+impl Routine<Fp> for TrivialEnforcePair {
+    type Input = Kind![Fp; (Element<'_, _>, Element<'_, _>)];
+    type Output = Kind![Fp; Element<'_, _>];
+    type Aux<'dr> = ();
+
+    fn execute<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        dr: &mut D,
+        input: Bound<'dr, D, Self::Input>,
+        _aux: DriverValue<D, Self::Aux<'dr>>,
+    ) -> Result<Bound<'dr, D, Self::Output>> {
+        dr.enforce_zero(|lc| lc)?;
+        let (a, _) = input;
+        Ok(a)
+    }
+
+    fn predict<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        _input: &Bound<'dr, D, Self::Input>,
+    ) -> Result<Prediction<Bound<'dr, D, Self::Output>, DriverValue<D, Self::Aux<'dr>>>> {
+        Ok(Prediction::Unknown(D::just(|| ())))
+    }
+}
+
+/// Enforces input == 0, returns input.
+#[derive(Clone)]
+struct EnforceInput;
+
+impl Routine<Fp> for EnforceInput {
+    type Input = Kind![Fp; Element<'_, _>];
+    type Output = Kind![Fp; Element<'_, _>];
+    type Aux<'dr> = ();
+
+    fn execute<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        dr: &mut D,
+        input: Bound<'dr, D, Self::Input>,
+        _aux: DriverValue<D, Self::Aux<'dr>>,
+    ) -> Result<Bound<'dr, D, Self::Output>> {
+        input.enforce_zero(dr)?;
+        Ok(input)
+    }
+
+    fn predict<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        _input: &Bound<'dr, D, Self::Input>,
+    ) -> Result<Prediction<Bound<'dr, D, Self::Output>, DriverValue<D, Self::Aux<'dr>>>> {
+        Ok(Prediction::Unknown(D::just(|| ())))
+    }
+}
+
+/// Enforces first input == 0, drops second, returns first.
+#[derive(Clone)]
+struct EnforceInputPair;
+
+impl Routine<Fp> for EnforceInputPair {
+    type Input = Kind![Fp; (Element<'_, _>, Element<'_, _>)];
+    type Output = Kind![Fp; Element<'_, _>];
+    type Aux<'dr> = ();
+
+    fn execute<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        dr: &mut D,
+        input: Bound<'dr, D, Self::Input>,
+        _aux: DriverValue<D, Self::Aux<'dr>>,
+    ) -> Result<Bound<'dr, D, Self::Output>> {
+        let (a, _) = input;
+        a.enforce_zero(dr)?;
+        Ok(a)
+    }
+
+    fn predict<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        _input: &Bound<'dr, D, Self::Input>,
+    ) -> Result<Prediction<Bound<'dr, D, Self::Output>, DriverValue<D, Self::Aux<'dr>>>> {
+        Ok(Prediction::Unknown(D::just(|| ())))
+    }
+}
+
+/// Squares input and returns a duplicate pair of the result.
+#[derive(Clone)]
+struct SquareDuplicate;
+
+impl Routine<Fp> for SquareDuplicate {
+    type Input = Kind![Fp; Element<'_, _>];
+    type Output = Kind![Fp; (Element<'_, _>, Element<'_, _>)];
+    type Aux<'dr> = ();
+
+    fn execute<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        dr: &mut D,
+        input: Bound<'dr, D, Self::Input>,
+        _aux: DriverValue<D, Self::Aux<'dr>>,
+    ) -> Result<Bound<'dr, D, Self::Output>> {
+        let sq = input.square(dr)?;
+        Ok((sq.clone(), sq))
+    }
+
+    fn predict<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        _input: &Bound<'dr, D, Self::Input>,
+    ) -> Result<Prediction<Bound<'dr, D, Self::Output>, DriverValue<D, Self::Aux<'dr>>>> {
+        Ok(Prediction::Unknown(D::just(|| ())))
+    }
+}
+
+/// Pair passthrough — returns (Element, Element) input unchanged.
+#[derive(Clone)]
+struct PairPassthrough;
+
+impl Routine<Fp> for PairPassthrough {
+    type Input = Kind![Fp; (Element<'_, _>, Element<'_, _>)];
+    type Output = Kind![Fp; (Element<'_, _>, Element<'_, _>)];
+    type Aux<'dr> = ();
+
+    fn execute<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        input: Bound<'dr, D, Self::Input>,
+        _aux: DriverValue<D, Self::Aux<'dr>>,
+    ) -> Result<Bound<'dr, D, Self::Output>> {
+        Ok(input)
+    }
+
+    fn predict<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        _input: &Bound<'dr, D, Self::Input>,
+    ) -> Result<Prediction<Bound<'dr, D, Self::Output>, DriverValue<D, Self::Aux<'dr>>>> {
+        Ok(Prediction::Unknown(D::just(|| ())))
+    }
+}
+
+/// Allocates an internal wire and enforces it zero. Single-element input.
+#[derive(Clone)]
+struct InternalEnforce;
+
+impl Routine<Fp> for InternalEnforce {
+    type Input = Kind![Fp; Element<'_, _>];
+    type Output = Kind![Fp; Element<'_, _>];
+    type Aux<'dr> = ();
+
+    fn execute<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        dr: &mut D,
+        input: Bound<'dr, D, Self::Input>,
+        _aux: DriverValue<D, Self::Aux<'dr>>,
+    ) -> Result<Bound<'dr, D, Self::Output>> {
+        let aux = Element::alloc(dr, D::just(|| Fp::ZERO))?;
+        aux.enforce_zero(dr)?;
+        Ok(input)
+    }
+
+    fn predict<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        _input: &Bound<'dr, D, Self::Input>,
+    ) -> Result<Prediction<Bound<'dr, D, Self::Output>, DriverValue<D, Self::Aux<'dr>>>> {
+        Ok(Prediction::Unknown(D::just(|| ())))
+    }
+}
+
+/// Allocates an internal wire and enforces it zero. Pair input, drops second.
+#[derive(Clone)]
+struct InternalEnforcePair;
+
+impl Routine<Fp> for InternalEnforcePair {
+    type Input = Kind![Fp; (Element<'_, _>, Element<'_, _>)];
+    type Output = Kind![Fp; Element<'_, _>];
+    type Aux<'dr> = ();
+
+    fn execute<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        dr: &mut D,
+        input: Bound<'dr, D, Self::Input>,
+        _aux: DriverValue<D, Self::Aux<'dr>>,
+    ) -> Result<Bound<'dr, D, Self::Output>> {
+        let aux = Element::alloc(dr, D::just(|| Fp::ZERO))?;
+        aux.enforce_zero(dr)?;
+        let (a, _) = input;
+        Ok(a)
+    }
+
+    fn predict<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        _input: &Bound<'dr, D, Self::Input>,
+    ) -> Result<Prediction<Bound<'dr, D, Self::Output>, DriverValue<D, Self::Aux<'dr>>>> {
+        Ok(Prediction::Unknown(D::just(|| ())))
+    }
+}
+
+/// Delegates to SquareOnce with first input wire. Pair input.
+#[derive(Clone)]
+struct PureNestingPair;
+
+impl Routine<Fp> for PureNestingPair {
+    type Input = Kind![Fp; (Element<'_, _>, Element<'_, _>)];
+    type Output = Kind![Fp; Element<'_, _>];
+    type Aux<'dr> = ();
+
+    fn execute<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        dr: &mut D,
+        input: Bound<'dr, D, Self::Input>,
+        _aux: DriverValue<D, Self::Aux<'dr>>,
+    ) -> Result<Bound<'dr, D, Self::Output>> {
+        let (a, _) = input;
+        dr.routine(SquareOnce, a)
+    }
+
+    fn predict<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        _input: &Bound<'dr, D, Self::Input>,
+    ) -> Result<Prediction<Bound<'dr, D, Self::Output>, DriverValue<D, Self::Aux<'dr>>>> {
+        Ok(Prediction::Unknown(D::just(|| ())))
+    }
+}
+
+/// Three enforce_zero calls on the input wire.
+#[derive(Clone)]
+struct TripleEnforceInput;
+
+impl Routine<Fp> for TripleEnforceInput {
+    type Input = Kind![Fp; Element<'_, _>];
+    type Output = Kind![Fp; Element<'_, _>];
+    type Aux<'dr> = ();
+
+    fn execute<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        dr: &mut D,
+        input: Bound<'dr, D, Self::Input>,
+        _aux: DriverValue<D, Self::Aux<'dr>>,
+    ) -> Result<Bound<'dr, D, Self::Output>> {
+        input.enforce_zero(dr)?;
+        input.enforce_zero(dr)?;
+        input.enforce_zero(dr)?;
+        Ok(input)
+    }
+
+    fn predict<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        _input: &Bound<'dr, D, Self::Input>,
+    ) -> Result<Prediction<Bound<'dr, D, Self::Output>, DriverValue<D, Self::Aux<'dr>>>> {
+        Ok(Prediction::Unknown(D::just(|| ())))
+    }
+}
+
+/// Three enforce_zero calls on the first input wire. Pair input, drops second.
+#[derive(Clone)]
+struct TripleEnforceInputPair;
+
+impl Routine<Fp> for TripleEnforceInputPair {
+    type Input = Kind![Fp; (Element<'_, _>, Element<'_, _>)];
+    type Output = Kind![Fp; Element<'_, _>];
+    type Aux<'dr> = ();
+
+    fn execute<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        dr: &mut D,
+        input: Bound<'dr, D, Self::Input>,
+        _aux: DriverValue<D, Self::Aux<'dr>>,
+    ) -> Result<Bound<'dr, D, Self::Output>> {
+        let (a, _) = input;
+        a.enforce_zero(dr)?;
+        a.enforce_zero(dr)?;
+        a.enforce_zero(dr)?;
+        Ok(a)
+    }
+
+    fn predict<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        _input: &Bound<'dr, D, Self::Input>,
+    ) -> Result<Prediction<Bound<'dr, D, Self::Output>, DriverValue<D, Self::Aux<'dr>>>> {
+        Ok(Prediction::Unknown(D::just(|| ())))
+    }
+}
+
+/// Enforces ONE wire == 0 (references the distinguished ONE wire).
+#[derive(Clone)]
+struct OneWireEnforce;
+
+impl Routine<Fp> for OneWireEnforce {
+    type Input = Kind![Fp; Element<'_, _>];
+    type Output = Kind![Fp; Element<'_, _>];
+    type Aux<'dr> = ();
+
+    fn execute<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        dr: &mut D,
+        input: Bound<'dr, D, Self::Input>,
+        _aux: DriverValue<D, Self::Aux<'dr>>,
+    ) -> Result<Bound<'dr, D, Self::Output>> {
+        dr.enforce_zero(|lc| lc.add(&D::ONE))?;
+        Ok(input)
+    }
+
+    fn predict<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        _input: &Bound<'dr, D, Self::Input>,
+    ) -> Result<Prediction<Bound<'dr, D, Self::Output>, DriverValue<D, Self::Aux<'dr>>>> {
+        Ok(Prediction::Unknown(D::just(|| ())))
+    }
+}
+
+/// Enforces ONE wire == 0 with pair input, drops second.
+#[derive(Clone)]
+struct OneWireEnforcePair;
+
+impl Routine<Fp> for OneWireEnforcePair {
+    type Input = Kind![Fp; (Element<'_, _>, Element<'_, _>)];
+    type Output = Kind![Fp; Element<'_, _>];
+    type Aux<'dr> = ();
+
+    fn execute<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        dr: &mut D,
+        input: Bound<'dr, D, Self::Input>,
+        _aux: DriverValue<D, Self::Aux<'dr>>,
+    ) -> Result<Bound<'dr, D, Self::Output>> {
+        dr.enforce_zero(|lc| lc.add(&D::ONE))?;
+        let (a, _) = input;
+        Ok(a)
+    }
+
+    fn predict<'dr, D: Driver<'dr, F = Fp>>(
+        &self,
+        _dr: &mut D,
+        _input: &Bound<'dr, D, Self::Input>,
+    ) -> Result<Prediction<Bound<'dr, D, Self::Output>, DriverValue<D, Self::Aux<'dr>>>> {
+        Ok(Prediction::Unknown(D::just(|| ())))
+    }
+}
+
+fn fingerprint_triple(
+    routine: &impl Routine<Fp, Input = Kind![Fp; (Element<'_, _>, (Element<'_, _>, Element<'_, _>))]>,
+) -> RoutineFingerprint {
+    let sim = &mut Simulator::<Fp>::new();
+    let a = Element::alloc(sim, Always::<Fp>::just(|| Fp::ONE)).unwrap();
+    let b = Element::alloc(sim, Always::<Fp>::just(|| Fp::ONE)).unwrap();
+    let c = Element::alloc(sim, Always::<Fp>::just(|| Fp::ONE)).unwrap();
+    match metrics::tests::fingerprint_routine::<Fp, Simulator<Fp>, _>(routine, &(a, (b, c)))
+        .unwrap()
+    {
+        RoutineIdentity::Routine(fp) => fp,
+        RoutineIdentity::Root => panic!("expected Routine variant"),
+    }
+}
+
+fn fingerprint_quad(
+    routine: &impl Routine<
+        Fp,
+        Input = Kind![Fp; ((Element<'_, _>, Element<'_, _>), (Element<'_, _>, Element<'_, _>))],
+    >,
+) -> RoutineFingerprint {
+    let sim = &mut Simulator::<Fp>::new();
+    let a = Element::alloc(sim, Always::<Fp>::just(|| Fp::ONE)).unwrap();
+    let b = Element::alloc(sim, Always::<Fp>::just(|| Fp::ONE)).unwrap();
+    let c = Element::alloc(sim, Always::<Fp>::just(|| Fp::ONE)).unwrap();
+    let d = Element::alloc(sim, Always::<Fp>::just(|| Fp::ONE)).unwrap();
+    match metrics::tests::fingerprint_routine::<Fp, Simulator<Fp>, _>(routine, &((a, b), (c, d)))
+        .unwrap()
+    {
+        RoutineIdentity::Routine(fp) => fp,
+        RoutineIdentity::Root => panic!("expected Routine variant"),
+    }
+}
+
 fn fingerprint_elem(
     routine: &impl Routine<Fp, Input = Kind![Fp; Element<'_, _>]>,
 ) -> RoutineFingerprint {
@@ -1159,4 +1689,143 @@ fn test_wire_collision_via_eval_metrics_identical() {
         );
         assert_eq!(s1.num_linear_constraints, s2.num_linear_constraints);
     }
+}
+
+/// `Passthrough` (Input = Element) and `DropFirst` (Input = (Element,
+/// Element)) have zero body constraints and identical Horner scalars —
+/// paired allocation packs 1 and 2 input wires into the same gate
+/// count during the uncounted input remap, leaving the geometric
+/// sequences in the same state.  Without `input_kind` in the
+/// fingerprint, these would collide.
+#[test]
+fn test_typeid_necessary_for_input_discrimination() {
+    let a = fingerprint_elem(&Passthrough);
+    let b = fingerprint_pair(&DropFirst);
+
+    // Confirm the scalar component is identical (both equal to the
+    // untouched Horner seed `h`).
+    assert_eq!(a.eval(), b.eval());
+
+    // The fingerprints must still differ — only TypeId saves us.
+    assert_ne!(a, b);
+}
+
+/// `Passthrough` (Output = Element) and `Duplicate` (Output =
+/// (Element, Element)) share the same Input type and have zero body
+/// constraints, so their `(scalar, mul_count, linear_count)` triples
+/// are identical.  Without `output_kind` in the fingerprint, these
+/// would collide.
+#[test]
+fn test_typeid_necessary_for_output_discrimination() {
+    let a = fingerprint_elem(&Passthrough);
+    let b = fingerprint_elem(&Duplicate);
+
+    assert_eq!(a.eval(), b.eval());
+    assert_ne!(a, b);
+}
+
+/// 3 vs 4 input wires produce identical post-remap Counter state.
+#[test]
+fn test_typeid_triple_vs_quad_input_wires() {
+    let a = fingerprint_triple(&PassthroughTriple);
+    let b = fingerprint_quad(&PassthroughQuad);
+
+    assert_eq!(a.eval(), b.eval());
+    assert_ne!(a, b);
+}
+
+/// Trivial enforce_zero (empty LC) with 1 vs 2 input wires.
+#[test]
+fn test_typeid_trivial_enforce_zero() {
+    let a = fingerprint_elem(&TrivialEnforce);
+    let b = fingerprint_pair(&TrivialEnforcePair);
+
+    assert_eq!(a.eval(), b.eval());
+    assert_ne!(a, b);
+}
+
+/// Input-dependent enforce_zero with 1 vs 2 input wires.
+#[test]
+fn test_typeid_enforce_first_input() {
+    let a = fingerprint_elem(&EnforceInput);
+    let b = fingerprint_pair(&EnforceInputPair);
+
+    assert_eq!(a.eval(), b.eval());
+    assert_ne!(a, b);
+}
+
+/// SquareOnce (Output = Element) vs SquareDuplicate (Output = (Element, Element)):
+/// identical body constraints, distinguished by output TypeId.
+#[test]
+fn test_typeid_output_with_square() {
+    let a = fingerprint_elem(&SquareOnce);
+    let b = fingerprint_elem(&SquareDuplicate);
+
+    assert_eq!(a.eval(), b.eval());
+    assert_ne!(a, b);
+}
+
+/// Passthrough (Element → Element) vs PairPassthrough ((Element, Element) →
+/// (Element, Element)): both TypeIds differ simultaneously.
+#[test]
+fn test_typeid_both_differ() {
+    let a = fingerprint_elem(&Passthrough);
+    let b = fingerprint_pair(&PairPassthrough);
+
+    assert_eq!(a.eval(), b.eval());
+    assert_ne!(a, b);
+}
+
+/// Internal-only constraint (alloc + enforce_zero) with 1 vs 2 input wires.
+#[test]
+fn test_typeid_internal_only_constraints() {
+    let a = fingerprint_elem(&InternalEnforce);
+    let b = fingerprint_pair(&InternalEnforcePair);
+
+    assert_eq!(a.eval(), b.eval());
+    assert_ne!(a, b);
+}
+
+/// Production path cross-check: Passthrough via eval vs DropFirst via pair.
+#[test]
+fn test_typeid_production_path() {
+    let a = fingerprint_via_eval(&Passthrough);
+    let b = fingerprint_pair(&DropFirst);
+
+    assert_eq!(
+        fingerprint_via_eval(&Passthrough),
+        fingerprint_elem(&Passthrough),
+    );
+    assert_eq!(a.eval(), b.eval());
+    assert_ne!(a, b);
+}
+
+/// Nested delegation with 1 vs 2 input wires.
+#[test]
+fn test_typeid_nested_with_pairing() {
+    let a = fingerprint_elem(&PureNesting);
+    let b = fingerprint_pair(&PureNestingPair);
+
+    assert_eq!(a.eval(), b.eval());
+    assert_ne!(a, b);
+}
+
+/// Three Horner steps (3× enforce_zero) with 1 vs 2 input wires.
+#[test]
+fn test_typeid_multiple_horner_steps() {
+    let a = fingerprint_elem(&TripleEnforceInput);
+    let b = fingerprint_pair(&TripleEnforceInputPair);
+
+    assert_eq!(a.eval(), b.eval());
+    assert_ne!(a, b);
+}
+
+/// ONE wire reference in enforce_zero with 1 vs 2 input wires.
+#[test]
+fn test_typeid_one_wire_constraint() {
+    let a = fingerprint_elem(&OneWireEnforce);
+    let b = fingerprint_pair(&OneWireEnforcePair);
+
+    assert_eq!(a.eval(), b.eval());
+    assert_ne!(a, b);
 }
