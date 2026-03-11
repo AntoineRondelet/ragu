@@ -278,7 +278,7 @@ pub trait Driver<'dr>: DriverTypes<ImplWire = Self::Wire, ImplField = Self::F> +
     /// Convenience method returning a unit [`DriverValue`]. Equivalent to
     /// `D::just(|| ())`.
     fn unit() -> DriverValue<Self, ()> {
-        <DriverValue<Self, ()> as Maybe<()>>::unit()
+        Self::just(|| ())
     }
 
     /// Executes a routine with this driver.
