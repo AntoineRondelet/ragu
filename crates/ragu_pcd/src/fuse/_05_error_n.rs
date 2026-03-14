@@ -27,10 +27,13 @@ use crate::{
         fold_revdot::{self, NativeParameters},
     },
     internal::{
-        native::stages::{
-            error_m as native_error_m, error_n as native,
-            error_n::{ChildKyValues, KyValues},
-            preamble as native_preamble,
+        native::{
+            claims as native_claims,
+            stages::{
+                error_m as native_error_m, error_n as native,
+                error_n::{ChildKyValues, KyValues},
+                preamble as native_preamble,
+            },
         },
         nested::stages::error_n as nested,
     },
@@ -91,7 +94,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
                 let nu = Element::alloc(dr, nu)?;
 
                 // Build k(y) values in claim order.
-                let ky = claims::native::TwoProofKySource {
+                let ky = native_claims::TwoProofKySource {
                     left_raw_c: preamble.left.unified.c.clone(),
                     right_raw_c: preamble.right.unified.c.clone(),
                     left_app: left_application_ky.clone(),
@@ -102,7 +105,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
                     right_unified: right_unified_ky.clone(),
                     zero: Element::zero(dr),
                 };
-                let mut ky = claims::native::ky_values(&ky);
+                let mut ky = native_claims::ky_values(&ky);
 
                 let fold_products = fold_revdot::FoldProducts::new(dr, &mu, &nu)?;
 

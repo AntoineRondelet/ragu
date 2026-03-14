@@ -25,11 +25,8 @@ use ragu_primitives::{GadgetExt, Point, vec::CollectFixed};
 use rand::CryptoRng;
 
 use crate::{
-    Application, Pcd, Proof, RAGU_TAG,
-    components::claims::{Source, native::RxComponent},
-    components::transcript::Transcript,
-    proof,
-    step::Step,
+    Application, Pcd, Proof, RAGU_TAG, components::claims::Source,
+    components::transcript::Transcript, internal::native::claims::RxComponent, proof, step::Step,
 };
 
 impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_SIZE> {

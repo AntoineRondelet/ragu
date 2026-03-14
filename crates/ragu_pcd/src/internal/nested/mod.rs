@@ -53,6 +53,8 @@ impl InternalCircuitIndex {
     }
 }
 
+pub(crate) mod claims;
+
 pub mod stages;
 
 /// Registers internal nested circuits into the provided registry.

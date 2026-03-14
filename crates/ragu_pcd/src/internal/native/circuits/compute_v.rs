@@ -60,10 +60,8 @@ use ragu_primitives::{Element, Endoscalar, GadgetExt};
 use alloc::{vec, vec::Vec};
 use core::marker::PhantomData;
 
-use crate::components::claims::{
-    Source,
-    native::{self as claims, Processor, RxComponent},
-};
+use super::super::claims::{self, Processor, RxComponent};
+use crate::components::claims::Source;
 use crate::components::fold_revdot::{NativeParameters, Parameters, fold_two_layer};
 
 use super::super::InternalCircuitIndex;

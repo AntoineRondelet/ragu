@@ -22,10 +22,10 @@ use ragu_core::Result;
 use ragu_core::drivers::Driver;
 use ragu_primitives::Element;
 
-use super::{Builder, Source};
-use crate::internal::{self, native::InternalCircuitIndex};
+use super::InternalCircuitIndex;
+use crate::components::claims::{Builder, Source, sum_polynomials};
 
-/// Number of circuits using unified k(y) in [`build`].
+/// Number of circuits using unified $k(y)$ in [`build`].
 ///
 /// These circuits use [`unified::InternalOutputKind`]:
 /// [`hashes_2`], [`partial_collapse`], [`full_collapse`], [`compute_v`].
@@ -86,17 +86,19 @@ pub enum RxComponent {
 ///   `ax` uses $r\_i(xz)$ directly (since $A$ has no dilation), while `bx` adds
 ///   $s\_y + t(xz)$.
 pub trait Processor<Rx, AppCircuitId> {
-    /// Process a raw claim (a/b directly, k(y) = c).
+    /// Process a raw claim (a/b directly, $k(y) = c$).
     fn raw_claim(&mut self, a: Rx, b: Rx);
 
-    /// Process an application circuit claim (k(y) = application_ky).
+    /// Process an application circuit claim ($k(y) = \text{application\_ky}$).
     fn circuit(&mut self, app_id: AppCircuitId, rx: Rx);
 
-    /// Process an internal circuit claim (sum of rxs, k(y) = internal_ky).
-    /// The processor looks up registry via InternalCircuitIndex from its stored context.
+    /// Process an internal circuit claim (sum of rxs, $k(y) = \text{internal\_ky}$).
+    ///
+    /// The processor looks up registry via [`InternalCircuitIndex`] from its stored context.
     fn internal_circuit(&mut self, id: InternalCircuitIndex, rxs: impl Iterator<Item = Rx>);
 
-    /// Process a stage claim (fold of rxs, k(y) = 0).
+    /// Process a stage claim (fold of rxs, $k(y) = 0$).
+    ///
     /// Returns `Result<()>` because evaluation context requires fallible fold operations.
     fn stage(&mut self, id: InternalCircuitIndex, rxs: impl Iterator<Item = Rx>) -> Result<()>;
 }
@@ -123,7 +125,7 @@ impl<'m, 'rx, F: PrimeField, R: Rank> Processor<&'rx structured::Polynomial<F, R
         rxs: impl Iterator<Item = &'rx structured::Polynomial<F, R>>,
     ) {
         let circuit_id = id.circuit_index();
-        let rx = super::sum_polynomials(rxs);
+        let rx = sum_polynomials(rxs);
         self.circuit_impl(circuit_id, rx);
     }
 
@@ -143,8 +145,9 @@ impl<'m, 'rx, F: PrimeField, R: Rank> Processor<&'rx structured::Polynomial<F, R
 /// moving to the next claim type. This produces an interleaved order:
 /// `[L_raw, R_raw, L_app, R_app, L_h1, R_h1, ...]` for two-proof sources.
 ///
-/// This ordering must match the ky_elements ordering in `partial_collapse.rs`
-/// and `fuse.rs` `compute_errors_n`.
+/// This ordering must match the $k(y)$ ordering in
+/// [`partial_collapse`](crate::internal::native::circuits::partial_collapse)
+/// and `compute_errors_n` in the fuse implementation.
 pub fn build<S, P>(source: &S, processor: &mut P) -> Result<()>
 where
     S: Source<RxComponent = RxComponent>,
@@ -238,46 +241,36 @@ where
     processor.stage(InternalCircuitIndex::EvalFinalStaged, source.rx(ComputeV))?;
 
     // Native stages (aggregated across all proofs)
-    processor.stage(
-        internal::native::stages::preamble::STAGING_ID,
-        source.rx(Preamble),
-    )?;
+    processor.stage(super::stages::preamble::STAGING_ID, source.rx(Preamble))?;
 
-    processor.stage(
-        internal::native::stages::error_m::STAGING_ID,
-        source.rx(ErrorM),
-    )?;
+    processor.stage(super::stages::error_m::STAGING_ID, source.rx(ErrorM))?;
 
-    processor.stage(
-        internal::native::stages::error_n::STAGING_ID,
-        source.rx(ErrorN),
-    )?;
+    processor.stage(super::stages::error_n::STAGING_ID, source.rx(ErrorN))?;
 
-    processor.stage(
-        internal::native::stages::query::STAGING_ID,
-        source.rx(Query),
-    )?;
+    processor.stage(super::stages::query::STAGING_ID, source.rx(Query))?;
 
-    processor.stage(internal::native::stages::eval::STAGING_ID, source.rx(Eval))?;
+    processor.stage(super::stages::eval::STAGING_ID, source.rx(Eval))?;
 
     Ok(())
 }
 
-/// Trait for providing k(y) values for claim verification.
+/// Trait for providing $k(y)$ values for claim verification.
 pub trait KySource {
-    /// The k(y) value type.
+    /// The $k(y)$ value type.
     type Ky: Clone;
 
     /// Iterator over raw_c values (the c from AB proof / preamble unified).
     fn raw_c(&self) -> impl Iterator<Item = Self::Ky>;
 
-    /// Iterator over application circuit k(y) values.
+    /// Iterator over application circuit $k(y)$ values.
     fn application_ky(&self) -> impl Iterator<Item = Self::Ky>;
 
-    /// Iterator over unified bridge k(y) values.
+    /// Iterator over unified bridge $k(y)$ values.
     fn unified_bridge_ky(&self) -> impl Iterator<Item = Self::Ky>;
 
-    /// Base iterator over unified k(y) values (will be repeated [`NUM_UNIFIED_CIRCUITS`] times).
+    /// Base iterator over unified $k(y)$ values.
+    ///
+    /// Will be repeated [`NUM_UNIFIED_CIRCUITS`] times.
     /// The `+ Clone` bound is required for `repeat_n` in [`ky_values`].
     fn unified_ky(&self) -> impl Iterator<Item = Self::Ky> + Clone;
 
@@ -285,9 +278,9 @@ pub trait KySource {
     fn zero(&self) -> Self::Ky;
 }
 
-/// Build an iterator over k(y) values in claim order.
+/// Build an iterator over $k(y)$ values in claim order.
 ///
-/// Chains the k(y) sources in the order required by [`build`],
+/// Chains the $k(y)$ sources in the order required by [`build`],
 /// with `unified_ky` repeated [`NUM_UNIFIED_CIRCUITS`] times,
 /// followed by infinite zeros for stage claims.
 pub fn ky_values<S: KySource>(source: &S) -> impl Iterator<Item = S::Ky> {

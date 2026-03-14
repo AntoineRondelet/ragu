@@ -51,7 +51,7 @@
 //! [`preamble`]: super::super::stages::preamble
 //! [`hashes_1`]: super::hashes_1
 //! [`FoldProducts::fold_products_m`]: fold_revdot::FoldProducts::fold_products_m
-//! [`TwoProofKySource`]: crate::components::claims::native::TwoProofKySource
+//! [`TwoProofKySource`]: crate::internal::native::claims::TwoProofKySource
 
 use ragu_arithmetic::Cycle;
 use ragu_circuits::{
@@ -68,14 +68,12 @@ use ragu_primitives::{Element, vec::FixedVec};
 
 use core::marker::PhantomData;
 
+use super::super::claims::{TwoProofKySource, ky_values};
 use super::super::{
     stages::{error_m as native_error_m, error_n as native_error_n, preamble as native_preamble},
     unified::{self, OutputBuilder},
 };
-use crate::components::{
-    claims::native::{TwoProofKySource, ky_values},
-    fold_revdot,
-};
+use crate::components::fold_revdot;
 
 /// Circuit that verifies layer 1 of the two-layer revdot reduction.
 ///

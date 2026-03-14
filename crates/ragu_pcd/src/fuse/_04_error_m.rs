@@ -20,7 +20,10 @@ use crate::{
         claims,
         fold_revdot::{self, NativeParameters},
     },
-    internal::{native::stages::error_m as native, nested::stages::error_m as nested},
+    internal::{
+        native::{claims as native_claims, stages::error_m as native},
+        nested::stages::error_m as nested,
+    },
     proof,
 };
 
@@ -79,7 +82,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
 
         let source = FuseProofSource { left, right };
         let mut builder = claims::Builder::new(&self.native_registry, y, z);
-        claims::native::build(&source, &mut builder)?;
+        native_claims::build(&source, &mut builder)?;
 
         let error_m_witness = native::Witness::<C, NativeParameters> {
             error_terms: fold_revdot::compute_errors_m::<_, R, NativeParameters>(

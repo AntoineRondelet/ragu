@@ -13,6 +13,7 @@ use crate::step;
 pub mod stages;
 
 pub(crate) mod circuits;
+pub(crate) mod claims;
 pub(crate) mod unified;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

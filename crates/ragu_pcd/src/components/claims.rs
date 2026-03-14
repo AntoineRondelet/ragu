@@ -7,9 +7,6 @@ use ragu_circuits::{
     registry::{CircuitIndex, Registry},
 };
 
-pub mod native;
-pub mod nested;
-
 /// Sum an iterator of polynomials, borrowing if only one element.
 ///
 /// Returns `Cow::Borrowed` for a single polynomial, `Cow::Owned` for multiple.
@@ -41,7 +38,6 @@ pub(crate) fn sum_polynomials<'rx, F: PrimeField, R: Rank>(
 /// `RxComponent` associated type defines which components can be requested.
 pub trait Source {
     /// The type identifying which rx component to retrieve.
-    /// For native claims, this is [`native::RxComponent`].
     type RxComponent: Copy;
 
     /// Opaque type for rx values.
@@ -85,7 +81,7 @@ impl<'m, 'rx, F: PrimeField, R: Rank> Builder<'m, 'rx, F, R> {
         }
     }
 
-    fn circuit_impl(
+    pub(crate) fn circuit_impl(
         &mut self,
         circuit_id: CircuitIndex,
         rx: Cow<'rx, structured::Polynomial<F, R>>,
