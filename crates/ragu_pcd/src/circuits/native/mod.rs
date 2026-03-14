@@ -19,25 +19,24 @@ pub(crate) mod hashes_2;
 pub(crate) mod partial_collapse;
 pub(crate) mod unified;
 
-#[derive(Clone, Copy, Debug)]
-#[repr(usize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum InternalCircuitIndex {
     // Native stages
-    PreambleStage = 0,
-    ErrorMStage = 1,
-    ErrorNStage = 2,
-    QueryStage = 3,
-    EvalStage = 4,
+    PreambleStage,
+    ErrorMStage,
+    ErrorNStage,
+    QueryStage,
+    EvalStage,
     // Final stage masks
-    ErrorMFinalStaged = 5,
-    ErrorNFinalStaged = 6,
-    EvalFinalStaged = 7,
+    ErrorMFinalStaged,
+    ErrorNFinalStaged,
+    EvalFinalStaged,
     // Native circuits
-    Hashes1Circuit = 8,
-    Hashes2Circuit = 9,
-    PartialCollapseCircuit = 10,
-    FullCollapseCircuit = 11,
-    ComputeVCircuit = 12,
+    Hashes1Circuit,
+    Hashes2Circuit,
+    PartialCollapseCircuit,
+    FullCollapseCircuit,
+    ComputeVCircuit,
 }
 
 /// The number of internal circuits registered by [`register_all`],
@@ -54,15 +53,10 @@ pub(crate) const fn total_circuit_counts(num_application_steps: usize) -> (usize
 
 impl InternalCircuitIndex {
     /// All variants in canonical iteration order.
-    ///
-    /// Note: `ErrorNStage` precedes `ErrorMStage` here to match the
-    /// established iteration order used by `poly_queries` and the prover's
-    /// `compute_f`. Changing this order would change the Horner
-    /// accumulation weights and break the prover/verifier correspondence.
     pub(crate) const ALL: [Self; NUM_INTERNAL_CIRCUITS] = [
         Self::PreambleStage,
-        Self::ErrorNStage,
         Self::ErrorMStage,
+        Self::ErrorNStage,
         Self::QueryStage,
         Self::EvalStage,
         Self::ErrorMFinalStaged,
@@ -75,10 +69,9 @@ impl InternalCircuitIndex {
         Self::ComputeVCircuit,
     ];
 
-    pub(crate) const fn circuit_index(self) -> CircuitIndex {
-        // Internal masks and circuits precede internal steps, so no offset
-        // is needed.
-        CircuitIndex::from_u32(self as u32)
+    pub(crate) fn circuit_index(self) -> CircuitIndex {
+        let pos = Self::ALL.iter().position(|&v| v == self).unwrap();
+        CircuitIndex::from_u32(pos as u32)
     }
 }
 
@@ -91,8 +84,8 @@ impl InternalCircuitIndex {
 #[derive(Clone)]
 pub(crate) struct InternalCircuitValues<T> {
     pub preamble_stage: T,
-    pub error_n_stage: T,
     pub error_m_stage: T,
+    pub error_n_stage: T,
     pub query_stage: T,
     pub eval_stage: T,
     pub error_m_final_staged: T,
@@ -142,8 +135,8 @@ impl<T> InternalCircuitValues<T> {
         use InternalCircuitIndex::*;
         Ok(InternalCircuitValues {
             preamble_stage: f(PreambleStage)?,
-            error_n_stage: f(ErrorNStage)?,
             error_m_stage: f(ErrorMStage)?,
+            error_n_stage: f(ErrorNStage)?,
             query_stage: f(QueryStage)?,
             eval_stage: f(EvalStage)?,
             error_m_final_staged: f(ErrorMFinalStaged)?,

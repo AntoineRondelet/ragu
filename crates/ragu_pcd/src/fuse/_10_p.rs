@@ -100,14 +100,14 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
                     proof.preamble.native_commitment,
                 );
                 acc.acc(
-                    &proof.error_n.native.rx,
-                    proof.error_n.native.blind,
-                    proof.error_n.native.commitment,
-                );
-                acc.acc(
                     &proof.error_m.native.rx,
                     proof.error_m.native.blind,
                     proof.error_m.native.commitment,
+                );
+                acc.acc(
+                    &proof.error_n.native.rx,
+                    proof.error_n.native.blind,
+                    proof.error_n.native.commitment,
                 );
                 acc.acc(&proof.ab.a_poly, proof.ab.a_blind, proof.ab.a_commitment);
                 acc.acc(&proof.ab.b_poly, proof.ab.b_blind, proof.ab.b_commitment);

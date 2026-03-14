@@ -81,8 +81,8 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
             factor_iter(error_m.native.registry_wy_poly.iter_coeffs(), x),
             factor_iter(query.registry_xy_poly.iter_coeffs(), w),
             factor_iter(query.registry_xy_poly.iter_coeffs(), omega_j(PreambleStage)),
-            factor_iter(query.registry_xy_poly.iter_coeffs(), omega_j(ErrorNStage)),
             factor_iter(query.registry_xy_poly.iter_coeffs(), omega_j(ErrorMStage)),
+            factor_iter(query.registry_xy_poly.iter_coeffs(), omega_j(ErrorNStage)),
             factor_iter(query.registry_xy_poly.iter_coeffs(), omega_j(QueryStage)),
             factor_iter(query.registry_xy_poly.iter_coeffs(), omega_j(EvalStage)),
             factor_iter(
@@ -136,8 +136,8 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
             // Per-rx evaluations at xz only. The same r_i(xz) values feed
             // into both A(xz) (undilated) and B(x) (Z-dilated).
             factor_iter(left.preamble.native_rx.iter_coeffs(), xz),
-            factor_iter(left.error_n.native.rx.iter_coeffs(), xz),
             factor_iter(left.error_m.native.rx.iter_coeffs(), xz),
+            factor_iter(left.error_n.native.rx.iter_coeffs(), xz),
             factor_iter(left.query.native_rx.iter_coeffs(), xz),
             factor_iter(left.eval.native_rx.iter_coeffs(), xz),
             factor_iter(left.application.rx.iter_coeffs(), xz),
@@ -147,8 +147,8 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
             factor_iter(left.circuits.full_collapse_rx.iter_coeffs(), xz),
             factor_iter(left.circuits.compute_v_rx.iter_coeffs(), xz),
             factor_iter(right.preamble.native_rx.iter_coeffs(), xz),
-            factor_iter(right.error_n.native.rx.iter_coeffs(), xz),
             factor_iter(right.error_m.native.rx.iter_coeffs(), xz),
+            factor_iter(right.error_n.native.rx.iter_coeffs(), xz),
             factor_iter(right.query.native_rx.iter_coeffs(), xz),
             factor_iter(right.eval.native_rx.iter_coeffs(), xz),
             factor_iter(right.application.rx.iter_coeffs(), xz),

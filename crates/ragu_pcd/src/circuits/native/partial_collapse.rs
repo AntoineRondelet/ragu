@@ -106,10 +106,10 @@ pub struct Witness<'a, C: Cycle, R: Rank, const HEADER_SIZE: usize, FP: fold_rev
     pub preamble_witness: &'a native_preamble::Witness<'a, C, R, HEADER_SIZE>,
     /// The unified instance containing challenges and accumulated coverage.
     pub unified: unified::Instance<C>,
-    /// Witness for the error_n stage (layer 2 error terms + collapsed values).
-    pub error_n_witness: &'a native_error_n::Witness<C, FP>,
     /// Witness for the error_m stage (layer 1 error terms).
     pub error_m_witness: &'a native_error_m::Witness<C, FP>,
+    /// Witness for the error_n stage (layer 2 error terms + collapsed values).
+    pub error_n_witness: &'a native_error_n::Witness<C, FP>,
 }
 
 impl<C: Cycle, R: Rank, const HEADER_SIZE: usize, FP: fold_revdot::Parameters>

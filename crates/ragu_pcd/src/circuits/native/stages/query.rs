@@ -41,11 +41,11 @@ pub struct ChildEvaluationsWitness<F> {
     /// Preamble stage `rx` polynomial evaluation at $xz$.
     pub preamble: F,
 
-    /// Error N stage `rx` polynomial evaluation at $xz$.
-    pub error_n: F,
-
     /// Error M stage `rx` polynomial evaluation at $xz$.
     pub error_m: F,
+
+    /// Error N stage `rx` polynomial evaluation at $xz$.
+    pub error_n: F,
 
     /// Query stage `rx` polynomial evaluation at $xz$.
     pub query: F,
@@ -187,13 +187,13 @@ pub struct ChildEvaluations<'dr, D: Driver<'dr>> {
     #[ragu(gadget)]
     pub preamble: Element<'dr, D>,
 
-    /// Error N stage `rx` polynomial evaluation at $xz$.
-    #[ragu(gadget)]
-    pub error_n: Element<'dr, D>,
-
     /// Error M stage `rx` polynomial evaluation at $xz$.
     #[ragu(gadget)]
     pub error_m: Element<'dr, D>,
+
+    /// Error N stage `rx` polynomial evaluation at $xz$.
+    #[ragu(gadget)]
+    pub error_n: Element<'dr, D>,
 
     /// Query stage `rx` polynomial evaluation at $xz$.
     #[ragu(gadget)]

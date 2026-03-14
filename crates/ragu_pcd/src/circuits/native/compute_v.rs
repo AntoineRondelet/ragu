@@ -622,8 +622,8 @@ fn poly_queries<'a, 'dr, D: Driver<'dr>, C: Cycle<CircuitField = D::F>, const HE
         .into_iter()
         .flat_map(|(eval, query)| [
             (&eval.preamble,         &query.preamble),
-            (&eval.error_n,          &query.error_n),
             (&eval.error_m,          &query.error_m),
+            (&eval.error_n,          &query.error_n),
             (&eval.query,            &query.query),
             (&eval.eval,             &query.eval),
             (&eval.application,      &query.application),
