@@ -96,7 +96,7 @@ use super::super::{
     unified::{self, OutputBuilder},
 };
 use crate::RAGU_TAG;
-use crate::components::{fold_revdot, root_of_unity, suffix::WithSuffix, transcript::Transcript};
+use crate::components::{fold_revdot, suffix::WithSuffix, transcript::Transcript};
 
 /// Public output of the first hash circuit.
 ///
@@ -219,8 +219,14 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize, FP: fold_revdot::Parameters>
         let error_n = error_n.unenforced(dr, witness.as_ref().map(|w| w.error_n_witness))?;
 
         // Verify circuit IDs are valid roots of unity in the registry domain.
-        root_of_unity::enforce(dr, preamble.left.circuit_id.clone(), self.log2_circuits)?;
-        root_of_unity::enforce(dr, preamble.right.circuit_id.clone(), self.log2_circuits)?;
+        preamble
+            .left
+            .circuit_id
+            .enforce_root_of_unity(dr, self.log2_circuits)?;
+        preamble
+            .right
+            .circuit_id
+            .enforce_root_of_unity(dr, self.log2_circuits)?;
 
         let mut unified_output = OutputBuilder::new(witness.map(|w| w.unified));
 
