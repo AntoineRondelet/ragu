@@ -13,8 +13,11 @@ use rand::CryptoRng;
 use core::iter::once;
 
 use crate::{
-    Application, Pcd, Proof, circuits::native::stages::preamble::ProofInputs, components::claims,
+    Application, Pcd, Proof,
     header::Header,
+    internal::claims,
+    internal::native::stages::preamble::ProofInputs,
+    internal::{native::claims as native_claims, nested::claims as nested_claims},
 };
 
 impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_SIZE> {
@@ -66,12 +69,12 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         // Build a and b polynomials for each revdot claim.
         let source = native::SingleProofSource { proof: &pcd.proof };
         let mut builder = claims::Builder::new(&self.native_registry, y, z);
-        claims::native::build(&source, &mut builder)?;
+        native_claims::build(&source, &mut builder)?;
 
         // Check all native revdot claims.
         let native_revdot_claims = {
             let ky_source = native::SingleProofKySource {
-                raw_c: pcd.proof.ab.c,
+                raw_c: pcd.proof.ab.native.c,
                 application_ky,
                 unified_bridge_ky,
                 unified_ky,
@@ -89,7 +92,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
             let z_nested = C::ScalarField::random(&mut rng);
             let mut nested_builder =
                 claims::Builder::new(&self.nested_registry, y_nested, z_nested);
-            claims::nested::build(&nested_source, &mut nested_builder)?;
+            nested_claims::build(&nested_source, &mut nested_builder)?;
 
             let ky_source = nested::SingleProofKySource::<C::ScalarField>::new();
             nested::ky_values(&ky_source)
@@ -98,22 +101,24 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         };
 
         // Check polynomial evaluation claim.
-        let p_eval_claim = pcd.proof.p.poly.eval(pcd.proof.challenges.u) == pcd.proof.p.v;
+        let p_eval_claim =
+            pcd.proof.p.native.poly.eval(pcd.proof.challenges.u) == pcd.proof.p.native.v;
 
         // Check P commitment corresponds to polynomial and blind.
         let p_commitment_claim = pcd
             .proof
             .p
+            .native
             .poly
-            .commit_to_affine(C::host_generators(self.params), pcd.proof.p.blind)
-            == pcd.proof.p.commitment;
+            .commit_to_affine(C::host_generators(self.params), pcd.proof.p.native.blind)
+            == pcd.proof.p.native.commitment;
 
         // Check registry_xy polynomial evaluation at the sampled w.
         // registry_xy_poly is m(W, x, y) - the registry evaluated at current x, y, free in W.
         let registry_xy_claim = {
             let x = pcd.proof.challenges.x;
             let y = pcd.proof.challenges.y;
-            let poly_eval = pcd.proof.query.registry_xy_poly.eval(w);
+            let poly_eval = pcd.proof.query.native.registry_xy_poly.eval(w);
             let expected = self.native_registry.wxy(w, x, y);
             poly_eval == expected
         };
@@ -132,12 +137,10 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
 
 mod native {
     use super::*;
-    use crate::components::claims::{
-        Source,
-        native::{KySource, RxComponent},
-    };
+    use crate::internal::claims::Source;
+    use crate::internal::native::{RxComponent, claims::KySource};
 
-    pub use crate::components::claims::native::ky_values;
+    pub use crate::internal::native::claims::ky_values;
 
     pub struct SingleProofSource<'rx, C: Cycle, R: Rank> {
         pub proof: &'rx Proof<C, R>,
@@ -192,12 +195,10 @@ mod native {
 
 mod nested {
     use super::*;
-    use crate::components::claims::{
-        Source,
-        nested::{KySource, RxComponent},
-    };
+    use crate::internal::claims::Source;
+    use crate::internal::nested::claims::{KySource, RxComponent};
 
-    pub use crate::components::claims::nested::ky_values;
+    pub use crate::internal::nested::claims::ky_values;
 
     /// Source for nested field rx polynomials for single-proof verification.
     pub struct SingleProofSource<'rx, C: Cycle, R: Rank> {
@@ -212,9 +213,9 @@ mod nested {
         fn rx(&self, component: RxComponent) -> impl Iterator<Item = Self::Rx> {
             use RxComponent::*;
             let poly = match component {
-                EndoscalarStage => &self.proof.p.endoscalar_rx,
-                PointsStage => &self.proof.p.points_rx,
-                EndoscalingStep(step) => &self.proof.p.step_rxs[step as usize], // TODO: bounds
+                EndoscalarStage => &self.proof.p.nested.endoscalar_rx,
+                PointsStage => &self.proof.p.nested.points_rx,
+                EndoscalingStep(step) => &self.proof.p.nested.step_rxs[step as usize], // TODO: bounds
             };
             core::iter::once(poly)
         }
@@ -324,7 +325,7 @@ mod tests {
         let mut proof = app.trivial_proof();
 
         // Corrupt the P commitment by changing the blind
-        proof.p.blind = <Pasta as Cycle>::CircuitField::from(999u64);
+        proof.p.native.blind = <Pasta as Cycle>::CircuitField::from(999u64);
 
         let pcd = proof.carry::<()>(());
         let result = app.verify(&pcd, &mut rng).expect("verify should not error");
@@ -340,7 +341,7 @@ mod tests {
         let mut proof = app.trivial_proof();
 
         // Corrupt the P evaluation value
-        proof.p.v = <Pasta as Cycle>::CircuitField::from(12345u64);
+        proof.p.native.v = <Pasta as Cycle>::CircuitField::from(12345u64);
 
         let pcd = proof.carry::<()>(());
         let result = app.verify(&pcd, &mut rng).expect("verify should not error");
@@ -356,7 +357,7 @@ mod tests {
         let mut proof = app.trivial_proof();
 
         // Corrupt the ab.c value (raw_c used in revdot claims)
-        proof.ab.c = <Pasta as Cycle>::CircuitField::from(99999u64);
+        proof.ab.native.c = <Pasta as Cycle>::CircuitField::from(99999u64);
 
         let pcd = proof.carry::<()>(());
         let result = app.verify(&pcd, &mut rng).expect("verify should not error");

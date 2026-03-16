@@ -22,10 +22,10 @@ use ragu_core::Result;
 use ragu_core::drivers::Driver;
 use ragu_primitives::Element;
 
-use super::{Builder, Source};
-use crate::circuits::{self, native::InternalCircuitIndex};
+use super::{InternalCircuitIndex, RxComponent, RxIndex};
+use crate::internal::claims::{Builder, Source, sum_polynomials};
 
-/// Number of circuits using unified k(y) in [`build`].
+/// Number of circuits using unified $k(y)$ in [`build`].
 ///
 /// These circuits use [`unified::InternalOutputKind`]:
 /// [`hashes_2`], [`partial_collapse`], [`full_collapse`], [`compute_v`].
@@ -33,45 +33,14 @@ use crate::circuits::{self, native::InternalCircuitIndex};
 /// Note: [`hashes_1`] separately uses `unified_bridge_ky` because its public
 /// inputs include child proof headers (see [`hashes_1::Output`]).
 ///
-/// [`hashes_1`]: crate::circuits::native::hashes_1
-/// [`hashes_1::Output`]: crate::circuits::native::hashes_1::Output
-/// [`hashes_2`]: crate::circuits::native::hashes_2
-/// [`partial_collapse`]: crate::circuits::native::partial_collapse
-/// [`full_collapse`]: crate::circuits::native::full_collapse
-/// [`compute_v`]: crate::circuits::native::compute_v
-/// [`unified::InternalOutputKind`]: crate::circuits::native::unified::InternalOutputKind
-pub const NUM_UNIFIED_CIRCUITS: usize = 4;
-
-/// Enum identifying which native field rx polynomial to retrieve from a proof.
-#[derive(Clone, Copy, Debug)]
-pub enum RxComponent {
-    /// The `a` polynomial from the AB proof (revdot claim).
-    AbA,
-    /// The `b` polynomial from the AB proof (revdot claim).
-    AbB,
-    /// The application circuit rx polynomial.
-    Application,
-    /// The hashes_1 internal circuit rx polynomial.
-    Hashes1,
-    /// The hashes_2 internal circuit rx polynomial.
-    Hashes2,
-    /// The partial_collapse internal circuit rx polynomial.
-    PartialCollapse,
-    /// The full_collapse internal circuit rx polynomial.
-    FullCollapse,
-    /// The compute_v internal circuit rx polynomial.
-    ComputeV,
-    /// The preamble native rx polynomial.
-    Preamble,
-    /// The error_m native rx polynomial.
-    ErrorM,
-    /// The error_n native rx polynomial.
-    ErrorN,
-    /// The query native rx polynomial.
-    Query,
-    /// The eval native rx polynomial.
-    Eval,
-}
+/// [`hashes_1`]: crate::internal::native::circuits::hashes_1
+/// [`hashes_1::Output`]: crate::internal::native::circuits::hashes_1::Output
+/// [`hashes_2`]: crate::internal::native::circuits::hashes_2
+/// [`partial_collapse`]: crate::internal::native::circuits::partial_collapse
+/// [`full_collapse`]: crate::internal::native::circuits::full_collapse
+/// [`compute_v`]: crate::internal::native::circuits::compute_v
+/// [`unified::InternalOutputKind`]: crate::internal::native::unified::InternalOutputKind
+const NUM_UNIFIED_CIRCUITS: usize = 4;
 
 /// Trait that processes claim values into accumulated outputs.
 ///
@@ -86,17 +55,19 @@ pub enum RxComponent {
 ///   `ax` uses $r\_i(xz)$ directly (since $A$ has no dilation), while `bx` adds
 ///   $s\_y + t(xz)$.
 pub trait Processor<Rx, AppCircuitId> {
-    /// Process a raw claim (a/b directly, k(y) = c).
+    /// Process a raw claim (a/b directly, $k(y) = c$).
     fn raw_claim(&mut self, a: Rx, b: Rx);
 
-    /// Process an application circuit claim (k(y) = application_ky).
+    /// Process an application circuit claim ($k(y) = \text{application\_ky}$).
     fn circuit(&mut self, app_id: AppCircuitId, rx: Rx);
 
-    /// Process an internal circuit claim (sum of rxs, k(y) = internal_ky).
-    /// The processor looks up registry via InternalCircuitIndex from its stored context.
+    /// Process an internal circuit claim (sum of rxs, $k(y) = \text{internal\_ky}$).
+    ///
+    /// The processor looks up registry via [`InternalCircuitIndex`] from its stored context.
     fn internal_circuit(&mut self, id: InternalCircuitIndex, rxs: impl Iterator<Item = Rx>);
 
-    /// Process a stage claim (fold of rxs, k(y) = 0).
+    /// Process a stage claim (fold of rxs, $k(y) = 0$).
+    ///
     /// Returns `Result<()>` because evaluation context requires fallible fold operations.
     fn stage(&mut self, id: InternalCircuitIndex, rxs: impl Iterator<Item = Rx>) -> Result<()>;
 }
@@ -123,7 +94,7 @@ impl<'m, 'rx, F: PrimeField, R: Rank> Processor<&'rx structured::Polynomial<F, R
         rxs: impl Iterator<Item = &'rx structured::Polynomial<F, R>>,
     ) {
         let circuit_id = id.circuit_index();
-        let rx = super::sum_polynomials(rxs);
+        let rx = sum_polynomials(rxs);
         self.circuit_impl(circuit_id, rx);
     }
 
@@ -143,141 +114,140 @@ impl<'m, 'rx, F: PrimeField, R: Rank> Processor<&'rx structured::Polynomial<F, R
 /// moving to the next claim type. This produces an interleaved order:
 /// `[L_raw, R_raw, L_app, R_app, L_h1, R_h1, ...]` for two-proof sources.
 ///
-/// This ordering must match the ky_elements ordering in `partial_collapse.rs`
-/// and `fuse.rs` `compute_errors_n`.
+/// This ordering must match the $k(y)$ ordering in
+/// [`partial_collapse`](crate::internal::native::circuits::partial_collapse)
+/// and `compute_errors_n` in the fuse implementation.
 pub fn build<S, P>(source: &S, processor: &mut P) -> Result<()>
 where
     S: Source<RxComponent = RxComponent>,
     P: Processor<S::Rx, S::AppCircuitId>,
 {
     use RxComponent::*;
+    use RxIndex::*;
 
-    // Raw claims (interleaved: iterate over all proofs for AbA/AbB)
+    // Raw claims (interleaved per proof)
     for (a, b) in source.rx(AbA).zip(source.rx(AbB)) {
         processor.raw_claim(a, b);
     }
 
-    // App circuits (interleaved)
-    for (app_id, rx) in source.app_circuits().zip(source.rx(Application)) {
+    // App circuits (interleaved per proof)
+    for (app_id, rx) in source.app_circuits().zip(source.rx(Rx(Application))) {
         processor.circuit(app_id, rx);
     }
 
-    // hashes_1: needs Hashes1 + Preamble + ErrorN for each proof
-    for ((h1, pre), en) in source
-        .rx(Hashes1)
-        .zip(source.rx(Preamble))
-        .zip(source.rx(ErrorN))
-    {
-        processor.internal_circuit(
-            circuits::native::hashes_1::CIRCUIT_ID,
-            [h1, pre, en].into_iter(),
-        );
+    // Internal circuits and stages in canonical order.
+    for &id in &InternalCircuitIndex::ALL {
+        use InternalCircuitIndex::*;
+        match id {
+            // hashes_1: Hashes1 + Preamble + ErrorN
+            Hashes1Circuit => {
+                for ((h1, pre), en) in source
+                    .rx(Rx(Hashes1))
+                    .zip(source.rx(Rx(Preamble)))
+                    .zip(source.rx(Rx(ErrorN)))
+                {
+                    processor.internal_circuit(id, [h1, pre, en].into_iter());
+                }
+            }
+
+            // hashes_2: Hashes2 + ErrorN
+            Hashes2Circuit => {
+                for (h2, en) in source.rx(Rx(Hashes2)).zip(source.rx(Rx(ErrorN))) {
+                    processor.internal_circuit(id, [h2, en].into_iter());
+                }
+            }
+
+            // partial_collapse: PartialCollapse + Preamble + ErrorM + ErrorN
+            PartialCollapseCircuit => {
+                for (((pc, pre), em), en) in source
+                    .rx(Rx(PartialCollapse))
+                    .zip(source.rx(Rx(Preamble)))
+                    .zip(source.rx(Rx(ErrorM)))
+                    .zip(source.rx(Rx(ErrorN)))
+                {
+                    processor.internal_circuit(id, [pc, pre, em, en].into_iter());
+                }
+            }
+
+            // full_collapse: FullCollapse + Preamble + ErrorN
+            FullCollapseCircuit => {
+                for ((fc, pre), en) in source
+                    .rx(Rx(FullCollapse))
+                    .zip(source.rx(Rx(Preamble)))
+                    .zip(source.rx(Rx(ErrorN)))
+                {
+                    processor.internal_circuit(id, [fc, pre, en].into_iter());
+                }
+            }
+
+            // compute_v: ComputeV + Preamble + Query + Eval
+            ComputeVCircuit => {
+                for (((cv, pre), q), e) in source
+                    .rx(Rx(ComputeV))
+                    .zip(source.rx(Rx(Preamble)))
+                    .zip(source.rx(Rx(Query)))
+                    .zip(source.rx(Rx(Eval)))
+                {
+                    processor.internal_circuit(id, [cv, pre, q, e].into_iter());
+                }
+            }
+
+            // Native stages (aggregated across all proofs)
+            PreambleStage => {
+                processor.stage(id, source.rx(Rx(Preamble)))?;
+            }
+            ErrorMStage => {
+                processor.stage(id, source.rx(Rx(ErrorM)))?;
+            }
+            ErrorNStage => {
+                processor.stage(id, source.rx(Rx(ErrorN)))?;
+            }
+            QueryStage => {
+                processor.stage(id, source.rx(Rx(Query)))?;
+            }
+            EvalStage => {
+                processor.stage(id, source.rx(Rx(Eval)))?;
+            }
+
+            // Final stage masks
+            ErrorMFinalStaged => {
+                processor.stage(id, source.rx(Rx(PartialCollapse)))?;
+            }
+            ErrorNFinalStaged => {
+                processor.stage(
+                    id,
+                    source
+                        .rx(Rx(Hashes1))
+                        .chain(source.rx(Rx(Hashes2)))
+                        .chain(source.rx(Rx(FullCollapse))),
+                )?;
+            }
+            EvalFinalStaged => {
+                processor.stage(id, source.rx(Rx(ComputeV)))?;
+            }
+        }
     }
-
-    // hashes_2: needs Hashes2 + ErrorN for each proof
-    for (h2, en) in source.rx(Hashes2).zip(source.rx(ErrorN)) {
-        processor.internal_circuit(circuits::native::hashes_2::CIRCUIT_ID, [h2, en].into_iter());
-    }
-
-    // partial_collapse: needs PartialCollapse + Preamble + ErrorM + ErrorN
-    for (((pc, pre), em), en) in source
-        .rx(PartialCollapse)
-        .zip(source.rx(Preamble))
-        .zip(source.rx(ErrorM))
-        .zip(source.rx(ErrorN))
-    {
-        processor.internal_circuit(
-            circuits::native::partial_collapse::CIRCUIT_ID,
-            [pc, pre, em, en].into_iter(),
-        );
-    }
-
-    // full_collapse: needs FullCollapse + Preamble + ErrorN (no ErrorM)
-    for ((fc, pre), en) in source
-        .rx(FullCollapse)
-        .zip(source.rx(Preamble))
-        .zip(source.rx(ErrorN))
-    {
-        processor.internal_circuit(
-            circuits::native::full_collapse::CIRCUIT_ID,
-            [fc, pre, en].into_iter(),
-        );
-    }
-
-    // compute_v: needs ComputeV + Preamble + Query + Eval
-    for (((cv, pre), q), e) in source
-        .rx(ComputeV)
-        .zip(source.rx(Preamble))
-        .zip(source.rx(Query))
-        .zip(source.rx(Eval))
-    {
-        processor.internal_circuit(
-            circuits::native::compute_v::CIRCUIT_ID,
-            [cv, pre, q, e].into_iter(),
-        );
-    }
-
-    // Stages (aggregated: collect all proofs' rxs together)
-
-    // ErrorMFinalStaged: only partial_collapse uses error_m as final stage
-    processor.stage(
-        InternalCircuitIndex::ErrorMFinalStaged,
-        source.rx(PartialCollapse),
-    )?;
-
-    // ErrorNFinalStaged: hashes_1, hashes_2, full_collapse use error_n as final stage
-    processor.stage(
-        InternalCircuitIndex::ErrorNFinalStaged,
-        source
-            .rx(Hashes1)
-            .chain(source.rx(Hashes2))
-            .chain(source.rx(FullCollapse)),
-    )?;
-
-    // EvalFinalStaged: all compute_v rxs
-    processor.stage(InternalCircuitIndex::EvalFinalStaged, source.rx(ComputeV))?;
-
-    // Native stages (aggregated across all proofs)
-    processor.stage(
-        circuits::native::stages::preamble::STAGING_ID,
-        source.rx(Preamble),
-    )?;
-
-    processor.stage(
-        circuits::native::stages::error_m::STAGING_ID,
-        source.rx(ErrorM),
-    )?;
-
-    processor.stage(
-        circuits::native::stages::error_n::STAGING_ID,
-        source.rx(ErrorN),
-    )?;
-
-    processor.stage(
-        circuits::native::stages::query::STAGING_ID,
-        source.rx(Query),
-    )?;
-
-    processor.stage(circuits::native::stages::eval::STAGING_ID, source.rx(Eval))?;
 
     Ok(())
 }
 
-/// Trait for providing k(y) values for claim verification.
+/// Trait for providing $k(y)$ values for claim verification.
 pub trait KySource {
-    /// The k(y) value type.
+    /// The $k(y)$ value type.
     type Ky: Clone;
 
     /// Iterator over raw_c values (the c from AB proof / preamble unified).
     fn raw_c(&self) -> impl Iterator<Item = Self::Ky>;
 
-    /// Iterator over application circuit k(y) values.
+    /// Iterator over application circuit $k(y)$ values.
     fn application_ky(&self) -> impl Iterator<Item = Self::Ky>;
 
-    /// Iterator over unified bridge k(y) values.
+    /// Iterator over unified bridge $k(y)$ values.
     fn unified_bridge_ky(&self) -> impl Iterator<Item = Self::Ky>;
 
-    /// Base iterator over unified k(y) values (will be repeated [`NUM_UNIFIED_CIRCUITS`] times).
+    /// Base iterator over unified $k(y)$ values.
+    ///
+    /// Will be repeated [`NUM_UNIFIED_CIRCUITS`] times.
     /// The `+ Clone` bound is required for `repeat_n` in [`ky_values`].
     fn unified_ky(&self) -> impl Iterator<Item = Self::Ky> + Clone;
 
@@ -285,9 +255,9 @@ pub trait KySource {
     fn zero(&self) -> Self::Ky;
 }
 
-/// Build an iterator over k(y) values in claim order.
+/// Build an iterator over $k(y)$ values in claim order.
 ///
-/// Chains the k(y) sources in the order required by [`build`],
+/// Chains the $k(y)$ sources in the order required by [`build`],
 /// with `unified_ky` repeated [`NUM_UNIFIED_CIRCUITS`] times,
 /// followed by infinite zeros for stage claims.
 pub fn ky_values<S: KySource>(source: &S) -> impl Iterator<Item = S::Ky> {

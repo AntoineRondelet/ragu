@@ -19,9 +19,7 @@ use ragu_primitives::{
 
 use core::marker::PhantomData;
 
-pub(crate) use crate::circuits::native::InternalCircuitIndex::ErrorNStage as STAGING_ID;
-
-use crate::components::fold_revdot::{self, ErrorTermsLen};
+use crate::internal::fold_revdot::{self, ErrorTermsLen};
 
 /// $k(Y)$ evaluation values for a single child proof.
 pub struct ChildKyValues<F> {
@@ -57,7 +55,7 @@ pub struct Witness<C: Cycle, FP: fold_revdot::Parameters> {
     /// $k(y)$ evaluation values.
     pub ky: KyValues<C::CircuitField>,
 
-    /// Sponge state elements saved after absorbing nested_error_m_commitment.
+    /// Sponge state elements saved after absorbing bridge_error_m_commitment.
     /// Used to bridge the Fiat-Shamir transcript between hashes_1 and hashes_2.
     pub sponge_state_elements:
         FixedVec<C::CircuitField, PoseidonStateLen<C::CircuitField, C::CircuitPoseidon>>,
@@ -99,7 +97,7 @@ pub struct Output<
     /// k(y) values for right child proof.
     #[ragu(gadget)]
     pub right: ChildKyOutputs<'dr, D>,
-    /// Sponge state saved after absorbing nested_error_m_commitment.
+    /// Sponge state saved after absorbing bridge_error_m_commitment.
     /// Used to bridge the Fiat-Shamir transcript between hashes_1 and hashes_2.
     #[ragu(gadget)]
     pub sponge_state: SpongeState<'dr, D, Poseidon>,
@@ -170,13 +168,13 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize, FP: fold_revdot::Parameters>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::circuits::native::stages::tests::{
-        HEADER_SIZE, NativeParameters, R, assert_stage_values,
+    use crate::internal::native::stages::tests::{
+        HEADER_SIZE, R, RevdotParameters, assert_stage_values,
     };
     use ragu_pasta::Pasta;
 
     #[test]
     fn stage_values_matches_wire_count() {
-        assert_stage_values(&Stage::<Pasta, R, { HEADER_SIZE }, NativeParameters>::default());
+        assert_stage_values(&Stage::<Pasta, R, { HEADER_SIZE }, RevdotParameters>::default());
     }
 }

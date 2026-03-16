@@ -32,9 +32,9 @@
 //!
 //! Uses [`unified::Output`] as its instance via [`unified::InternalOutputKind`].
 //!
-//! [`preamble`]: super::stages::preamble
-//! [`query`]: super::stages::query
-//! [`eval`]: super::stages::eval
+//! [`preamble`]: super::super::stages::preamble
+//! [`query`]: super::super::stages::query
+//! [`eval`]: super::super::stages::eval
 //! [$v$]: unified::Output::v
 //! [$\alpha$]: unified::Output::alpha
 //! [$\beta$]: unified::Output::pre_beta
@@ -60,23 +60,22 @@ use ragu_primitives::{Element, Endoscalar, GadgetExt};
 use alloc::{vec, vec::Vec};
 use core::marker::PhantomData;
 
-use crate::components::claims::{
-    Source,
-    native::{self as claims, Processor, RxComponent},
-};
-use crate::components::fold_revdot::{NativeParameters, Parameters, fold_two_layer};
+use super::super::claims::{self, Processor};
+use super::super::{RxComponent, RxIndex};
+use crate::internal::claims::Source;
+use crate::internal::fold_revdot::{Parameters, fold_two_layer};
+use crate::internal::native::RevdotParameters;
 
-use super::InternalCircuitIndex;
-use super::{
+use super::super::InternalCircuitIndex;
+use super::super::InternalCircuitValues;
+use super::super::{
     stages::{
         eval as native_eval, preamble as native_preamble,
-        query::{self as native_query, ChildEvaluations, FixedRegistryEvaluations},
+        query::{self as native_query, ChildEvaluations},
     },
     unified::{self, OutputBuilder},
 };
 use ragu_circuits::horner::Horner;
-
-pub(crate) use super::InternalCircuitIndex::ComputeVCircuit as CIRCUIT_ID;
 
 /// Circuit that computes and verifies the claimed evaluation value [$v$].
 ///
@@ -190,7 +189,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> MultiStageCircuit<C::CircuitFi
                 let munu = mu.mul(dr, &nu)?;
                 let mu_prime_nu_prime = mu_prime.mul(dr, &nu_prime)?;
 
-                compute_axbx::<_, NativeParameters>(
+                compute_axbx::<_, RevdotParameters>(
                     dr,
                     &query,
                     &z,
@@ -261,23 +260,6 @@ struct ChallengeDenominators<'dr, D: Driver<'dr>> {
     xz: Element<'dr, D>,
 }
 
-/// Denominators for internal circuit omega^j evaluation points.
-struct InternalCircuitDenominators<'dr, D: Driver<'dr>> {
-    preamble_stage: Element<'dr, D>,
-    error_n_stage: Element<'dr, D>,
-    error_m_stage: Element<'dr, D>,
-    query_stage: Element<'dr, D>,
-    eval_stage: Element<'dr, D>,
-    error_m_final_staged: Element<'dr, D>,
-    error_n_final_staged: Element<'dr, D>,
-    eval_final_staged: Element<'dr, D>,
-    hashes_1_circuit: Element<'dr, D>,
-    hashes_2_circuit: Element<'dr, D>,
-    partial_collapse_circuit: Element<'dr, D>,
-    full_collapse_circuit: Element<'dr, D>,
-    compute_v_circuit: Element<'dr, D>,
-}
-
 /// Denominator component of all quotient polynomial evaluations.
 ///
 /// Each denominator represents $(u - x_i)^{-1}$ where $x_i$ is an evaluation
@@ -292,7 +274,7 @@ struct Denominators<'dr, D: Driver<'dr>> {
     left: ChildDenominators<'dr, D>,
     right: ChildDenominators<'dr, D>,
     challenges: ChallengeDenominators<'dr, D>,
-    internal: InternalCircuitDenominators<'dr, D>,
+    internal: InternalCircuitValues<Element<'dr, D>>,
 }
 
 impl<'dr, D: Driver<'dr>> Denominators<'dr, D> {
@@ -308,8 +290,6 @@ impl<'dr, D: Driver<'dr>> Denominators<'dr, D> {
     where
         D::F: ff::PrimeField,
     {
-        use super::InternalCircuitIndex::*;
-
         let xz = x.mul(dr, z)?;
 
         let mut inverter = Inverter::with_base(u.clone());
@@ -327,19 +307,8 @@ impl<'dr, D: Driver<'dr>> Denominators<'dr, D> {
         let challenges_y = inverter.add(dr, y)?;
         let challenges_xz = inverter.add(dr, &xz)?;
 
-        let preamble_stage = inverter.add_circuit(dr, PreambleStage)?;
-        let error_n_stage = inverter.add_circuit(dr, ErrorNStage)?;
-        let error_m_stage = inverter.add_circuit(dr, ErrorMStage)?;
-        let query_stage = inverter.add_circuit(dr, QueryStage)?;
-        let eval_stage = inverter.add_circuit(dr, EvalStage)?;
-        let error_m_final_staged = inverter.add_circuit(dr, ErrorMFinalStaged)?;
-        let error_n_final_staged = inverter.add_circuit(dr, ErrorNFinalStaged)?;
-        let eval_final_staged = inverter.add_circuit(dr, EvalFinalStaged)?;
-        let hashes_1_circuit = inverter.add_circuit(dr, Hashes1Circuit)?;
-        let hashes_2_circuit = inverter.add_circuit(dr, Hashes2Circuit)?;
-        let partial_collapse_circuit = inverter.add_circuit(dr, PartialCollapseCircuit)?;
-        let full_collapse_circuit = inverter.add_circuit(dr, FullCollapseCircuit)?;
-        let compute_v_circuit = inverter.add_circuit(dr, ComputeVCircuit)?;
+        let circuit_indices =
+            InternalCircuitValues::try_from_fn(|id| inverter.add_circuit(dr, id))?;
 
         let inverted = inverter.invert(dr)?;
 
@@ -362,21 +331,9 @@ impl<'dr, D: Driver<'dr>> Denominators<'dr, D> {
                 y: inverted[challenges_y].clone(),
                 xz: inverted[challenges_xz].clone(),
             },
-            internal: InternalCircuitDenominators {
-                preamble_stage: inverted[preamble_stage].clone(),
-                error_n_stage: inverted[error_n_stage].clone(),
-                error_m_stage: inverted[error_m_stage].clone(),
-                query_stage: inverted[query_stage].clone(),
-                eval_stage: inverted[eval_stage].clone(),
-                error_m_final_staged: inverted[error_m_final_staged].clone(),
-                error_n_final_staged: inverted[error_n_final_staged].clone(),
-                eval_final_staged: inverted[eval_final_staged].clone(),
-                hashes_1_circuit: inverted[hashes_1_circuit].clone(),
-                hashes_2_circuit: inverted[hashes_2_circuit].clone(),
-                partial_collapse_circuit: inverted[partial_collapse_circuit].clone(),
-                full_collapse_circuit: inverted[full_collapse_circuit].clone(),
-                compute_v_circuit: inverted[compute_v_circuit].clone(),
-            },
+            internal: InternalCircuitValues::from_fn(|id| {
+                inverted[*circuit_indices.get(id)].clone()
+            }),
         })
     }
 }
@@ -401,21 +358,10 @@ impl<'a, 'dr, D: Driver<'dr>> Source for EvaluationSource<'a, 'dr, D> {
     type AppCircuitId = &'a Element<'dr, D>;
 
     fn rx(&self, component: RxComponent) -> impl Iterator<Item = Self::Rx> {
-        use RxComponent::*;
         let (left, right) = match component {
-            AbA => (&self.left.a_poly_at_xz, &self.right.a_poly_at_xz),
-            AbB => (&self.left.b_poly_at_x, &self.right.b_poly_at_x),
-            Application => (&self.left.application, &self.right.application),
-            Hashes1 => (&self.left.hashes_1, &self.right.hashes_1),
-            Hashes2 => (&self.left.hashes_2, &self.right.hashes_2),
-            PartialCollapse => (&self.left.partial_collapse, &self.right.partial_collapse),
-            FullCollapse => (&self.left.full_collapse, &self.right.full_collapse),
-            ComputeV => (&self.left.compute_v, &self.right.compute_v),
-            Preamble => (&self.left.preamble, &self.right.preamble),
-            ErrorM => (&self.left.error_m, &self.right.error_m),
-            ErrorN => (&self.left.error_n, &self.right.error_n),
-            Query => (&self.left.query, &self.right.query),
-            Eval => (&self.left.eval, &self.right.eval),
+            RxComponent::AbA => (&self.left.a_poly_at_xz, &self.right.a_poly_at_xz),
+            RxComponent::AbB => (&self.left.b_poly_at_x, &self.right.b_poly_at_x),
+            RxComponent::Rx(idx) => (self.left.rx.get(idx), self.right.rx.get(idx)),
         };
         [left, right].into_iter()
     }
@@ -445,7 +391,7 @@ struct EvaluationProcessor<'a, 'dr, D: Driver<'dr>> {
     dr: &'a mut D,
     z: &'a Element<'dr, D>,
     txz: &'a Element<'dr, D>,
-    fixed_registry: &'a FixedRegistryEvaluations<'dr, D>,
+    fixed_registry: &'a InternalCircuitValues<Element<'dr, D>>,
     ax: Vec<Element<'dr, D>>,
     bx: Vec<Element<'dr, D>>,
 }
@@ -455,7 +401,7 @@ impl<'a, 'dr, D: Driver<'dr>> EvaluationProcessor<'a, 'dr, D> {
         dr: &'a mut D,
         z: &'a Element<'dr, D>,
         txz: &'a Element<'dr, D>,
-        fixed_registry: &'a FixedRegistryEvaluations<'dr, D>,
+        fixed_registry: &'a InternalCircuitValues<Element<'dr, D>>,
     ) -> Self {
         Self {
             dr,
@@ -493,7 +439,7 @@ impl<'a, 'dr, D: Driver<'dr>> Processor<&'a Element<'dr, D>, &'a Element<'dr, D>
         id: InternalCircuitIndex,
         rxs: impl Iterator<Item = &'a Element<'dr, D>>,
     ) {
-        let sy = self.fixed_registry.circuit_registry(id);
+        let sy = self.fixed_registry.get(id);
 
         let mut sum = Element::zero(self.dr);
 
@@ -513,7 +459,7 @@ impl<'a, 'dr, D: Driver<'dr>> Processor<&'a Element<'dr, D>, &'a Element<'dr, D>
         id: InternalCircuitIndex,
         rxs: impl Iterator<Item = &'a Element<'dr, D>>,
     ) -> Result<()> {
-        let sy = self.fixed_registry.circuit_registry(id);
+        let sy = self.fixed_registry.get(id);
 
         // a(xz) = fold of all rx(xz) with z (Horner's rule)
         self.ax.push(Element::fold(self.dr, rxs, self.z)?);
@@ -593,16 +539,16 @@ fn compute_axbx<'dr, D: Driver<'dr>, P: Parameters>(
 /// 1. **Child proof $p(u) = v$ checks** - Verify child proof evaluations
 /// 2. **Registry polynomial transitions** -
 ///    $m(W, x, y) \to m(w, x, Y) \to m(w, X, y) \to s(W, x, y)$
-/// 3. **Internal circuit registry evaluations** - $m(\omega^j, x, y)$ for each
-///    internal index
-/// 4. **Application circuit registry evaluations** -
+/// 3. **Application circuit registry evaluations** -
 ///    $m(\text{circuit\_id}, x, y)$
-/// 5. **$a(xz),\, b(x)$ polynomial queries** — $a$ at $xz$, $b$ at $x$,
+/// 4. **$a(xz),\, b(x)$ polynomial queries** — $a$ at $xz$, $b$ at $x$,
 ///    including verifier-computed values for each child and the current
 ///    accumulator
-/// 6. **Stage/circuit `rx` evaluations** — each $r\_i$ queried at $xz$ for each
+/// 5. **Stage/circuit `rx` evaluations** — each $r\_i$ queried at $xz$ for each
 ///    child. The same $r\_i(xz)$ evaluations feed into both the $A(xz)$
 ///    recomputation (undilated) and $B(x)$ ($Z$-dilated).
+/// 6. **Internal circuit registry evaluations** - $m(\omega^j, x, y)$ for each
+///    internal index
 ///
 /// The queries must be ordered exactly as in the prover's computation of $f(X)$
 /// in [`compute_f`], since the ordering affects the weight (with respect to
@@ -636,24 +582,6 @@ fn poly_queries<'a, 'dr, D: Driver<'dr>, C: Cycle<CircuitField = D::F>, const HE
         // m(w, X, y) -> s(W, x, y)
         (&eval.registry_wy,            &query.registry_wxy,                              &d.challenges.x),
         (&eval.registry_xy,            &query.registry_wxy,                              &d.challenges.w),
-    ].into_iter()
-    // m(\omega^j, x, y) evaluations for each internal index j
-    .chain([
-        (&query.fixed_registry.preamble_stage,           &d.internal.preamble_stage),
-        (&query.fixed_registry.error_n_stage,            &d.internal.error_n_stage),
-        (&query.fixed_registry.error_m_stage,            &d.internal.error_m_stage),
-        (&query.fixed_registry.query_stage,              &d.internal.query_stage),
-        (&query.fixed_registry.eval_stage,               &d.internal.eval_stage),
-        (&query.fixed_registry.error_m_final_staged,     &d.internal.error_m_final_staged),
-        (&query.fixed_registry.error_n_final_staged,     &d.internal.error_n_final_staged),
-        (&query.fixed_registry.eval_final_staged,        &d.internal.eval_final_staged),
-        (&query.fixed_registry.hashes_1_circuit,         &d.internal.hashes_1_circuit),
-        (&query.fixed_registry.hashes_2_circuit,         &d.internal.hashes_2_circuit),
-        (&query.fixed_registry.partial_collapse_circuit, &d.internal.partial_collapse_circuit),
-        (&query.fixed_registry.full_collapse_circuit,    &d.internal.full_collapse_circuit),
-        (&query.fixed_registry.compute_v_circuit,        &d.internal.compute_v_circuit),
-    ].into_iter().map(|(v, denom)| (&eval.registry_xy, v, denom)))
-    .chain([
         // m(circuit_id_i, x, y) evaluations for the ith child proof
         (&eval.registry_xy,            &query.left.current_registry_xy_at_child_circuit_id,  &d.left.circuit_id),
         (&eval.registry_xy,            &query.right.current_registry_xy_at_child_circuit_id, &d.right.circuit_id),
@@ -667,25 +595,19 @@ fn poly_queries<'a, 'dr, D: Driver<'dr>, C: Cycle<CircuitField = D::F>, const HE
         // prover.
         (&eval.a_poly,             computed_ax,                                      &d.challenges.xz),
         (&eval.b_poly,             computed_bx,                                      &d.challenges.x),
-    ])
+    ].into_iter()
     // Stage and circuit rx evaluations at xz for each child proof.
     // The same r_i(xz) values feed into both A(xz) (undilated) and
     // B(x) (Z-dilated) recomputations.
     .chain([(&eval.left, &query.left), (&eval.right, &query.right)]
         .into_iter()
-        .flat_map(|(eval, query)| [
-            (&eval.preamble,         &query.preamble),
-            (&eval.error_n,          &query.error_n),
-            (&eval.error_m,          &query.error_m),
-            (&eval.query,            &query.query),
-            (&eval.eval,             &query.eval),
-            (&eval.application,      &query.application),
-            (&eval.hashes_1,         &query.hashes_1),
-            (&eval.hashes_2,         &query.hashes_2),
-            (&eval.partial_collapse, &query.partial_collapse),
-            (&eval.full_collapse,    &query.full_collapse),
-            (&eval.compute_v,        &query.compute_v),
-        ].into_iter().map(|(e, q)| (e, q, &d.challenges.xz))))
+        .flat_map(move |(eval, query)|
+            RxIndex::ALL.iter().map(move |&id|
+                (eval.rx.get(id), query.rx.get(id), &d.challenges.xz))))
+    // m(\omega^j, x, y) evaluations for each internal index j
+    .chain(InternalCircuitIndex::ALL.iter().map(|&id| {
+        (&eval.registry_xy, query.fixed_registry.get(id), d.internal.get(id))
+    }))
 }
 
 /// Batch inverter for computing denominators.

@@ -1,17 +1,17 @@
 use super::*;
 use crate::*;
 use native::{
-    InternalCircuitIndex,
+    InternalCircuitIndex, InternalCircuitValues, RevdotParameters, RxIndex, RxValues,
     stages::{error_m, error_n, eval, preamble, query},
 };
 use ragu_circuits::staging::{Stage, StageExt};
 use ragu_pasta::{Pasta, fp, fq};
-pub(crate) type R = ragu_circuits::polynomials::ProductionRank;
+pub type R = ragu_circuits::polynomials::ProductionRank;
 
 // When changing HEADER_SIZE, update the constraint counts by running:
 //   cargo test -p ragu_pcd --release print_internal_circuit -- --nocapture
 // Then copy-paste the output into the check_constraints! calls in the test below.
-pub(crate) const HEADER_SIZE: usize = 65;
+pub const HEADER_SIZE: usize = 65;
 
 // Number of dummy application circuits to register before testing internal
 // circuits. This ensures the tests work correctly even when application
@@ -19,8 +19,8 @@ pub(crate) const HEADER_SIZE: usize = 65;
 const NUM_APP_STEPS: usize = 6000;
 
 type Preamble = preamble::Stage<Pasta, R, HEADER_SIZE>;
-type ErrorN = error_n::Stage<Pasta, R, HEADER_SIZE, NativeParameters>;
-type ErrorM = error_m::Stage<Pasta, R, HEADER_SIZE, NativeParameters>;
+type ErrorN = error_n::Stage<Pasta, R, HEADER_SIZE, RevdotParameters>;
+type ErrorM = error_m::Stage<Pasta, R, HEADER_SIZE, RevdotParameters>;
 type Query = query::Stage<Pasta, R, HEADER_SIZE>;
 type Eval = eval::Stage<Pasta, R, HEADER_SIZE>;
 
@@ -175,7 +175,7 @@ fn test_native_registry_digest() {
         .finalize(pasta)
         .unwrap();
 
-    let expected = fp!(0x3a7b175f8f7ac167cb0e0d00968eb1693090ade33621e5c328ba94e40b303e6e);
+    let expected = fp!(0x27e46fa6cc3da244cd0ece800ccba42bc93a107684629501b75b17121b7dceac);
 
     assert_eq!(
         app.native_registry.digest(),
@@ -199,7 +199,7 @@ fn test_nested_registry_digest() {
         .finalize(pasta)
         .unwrap();
 
-    let expected = fq!(0x245758c98f3c46ca03bfafe1bb50c38d0dcaed48231fd7547f40e3b208e67729);
+    let expected = fq!(0x19eee1ec7cbd105fbaab44be187c935497612ee71d898ae064ca3c7166e2d645);
 
     assert_eq!(
         app.nested_registry.digest(),
@@ -259,4 +259,22 @@ fn print_registry_digests() {
             .map(|b| format!("{:02x}", b))
             .collect::<String>()
     );
+}
+
+#[test]
+fn test_internal_circuit_index_all_exhaustive() {
+    let mut collected = alloc::vec::Vec::new();
+    let _values = InternalCircuitValues::from_fn(|id| {
+        collected.push(id);
+    });
+    assert_eq!(collected.as_slice(), InternalCircuitIndex::ALL);
+}
+
+#[test]
+fn test_rx_index_all_exhaustive() {
+    let mut collected = alloc::vec::Vec::new();
+    let _values = RxValues::from_fn(|id| {
+        collected.push(id);
+    });
+    assert_eq!(collected.as_slice(), RxIndex::ALL);
 }

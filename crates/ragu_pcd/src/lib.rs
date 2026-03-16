@@ -11,10 +11,9 @@ extern crate alloc;
 #[cfg(feature = "multicore")]
 extern crate std;
 
-mod circuits;
-mod components;
 mod fuse;
 pub mod header;
+mod internal;
 mod proof;
 pub mod step;
 mod verify;
@@ -109,15 +108,14 @@ impl<'params, C: Cycle, R: Rank, const HEADER_SIZE: usize>
         params: &'params C::Params,
     ) -> Result<Application<'params, C, R, HEADER_SIZE>> {
         // Build the native registry:
-        // 1. Internal masks
-        // 2. Internal circuits
+        // 1. Application circuits (already registered)
+        // 2. Internal circuits and masks
         // 3. Internal steps
-        // 4. Application circuits (already registered)
         let (total_circuits, log2_circuits) =
-            circuits::native::total_circuit_counts(self.num_application_steps);
+            internal::native::total_circuit_counts(self.num_application_steps);
 
-        // First, register internal masks and circuits
-        self.native_registry = circuits::native::register_all::<C, R, HEADER_SIZE>(
+        // First, register internal circuits and masks
+        self.native_registry = internal::native::register_all::<C, R, HEADER_SIZE>(
             self.native_registry,
             params,
             log2_circuits,
@@ -125,15 +123,15 @@ impl<'params, C: Cycle, R: Rank, const HEADER_SIZE: usize>
 
         // Then, register internal steps
         self.native_registry =
-            self.native_registry.register_internal_circuit(
-                Adapter::<C, _, R, HEADER_SIZE>::new(
+            self.native_registry
+                .register_internal_step(Adapter::<C, _, R, HEADER_SIZE>::new(
                     step::internal::rerandomize::Rerandomize::<()>::new(),
-                ),
-            )?;
+                ))?;
         self.native_registry =
-            self.native_registry.register_internal_circuit(
-                Adapter::<C, _, R, HEADER_SIZE>::new(step::internal::trivial::Trivial::new()),
-            )?;
+            self.native_registry
+                .register_internal_step(Adapter::<C, _, R, HEADER_SIZE>::new(
+                    step::internal::trivial::Trivial::new(),
+                ))?;
 
         assert_eq!(
             self.native_registry.log2_circuits(),
@@ -147,7 +145,7 @@ impl<'params, C: Cycle, R: Rank, const HEADER_SIZE: usize>
         );
 
         // Register nested internal circuits (no application steps, no headers).
-        self.nested_registry = circuits::nested::register_all::<C, R>(self.nested_registry)?;
+        self.nested_registry = internal::nested::register_all::<C, R>(self.nested_registry)?;
 
         Ok(Application {
             native_registry: self.native_registry.finalize()?,
@@ -209,9 +207,8 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
     /// (folded with itself). This gives it valid proof structure, avoiding
     /// base case detection issues.
     ///
-    /// The proof is lazily created on first use and cached. *Importantly*,
-    /// note that this may return the same proof on subsequent calls, and
-    /// is not random.
+    /// The proof is lazily created on first use and cached; subsequent calls
+    /// return the same (non-random) proof.
     fn seeded_trivial_pcd<'source, RNG: CryptoRng>(&self, rng: &mut RNG) -> Pcd<'source, C, R, ()> {
         self.seeded_trivial
             .get_or_init(|| {

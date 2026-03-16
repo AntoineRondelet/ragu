@@ -6,8 +6,7 @@ use rand::CryptoRng;
 
 use crate::{
     Application,
-    circuits::{self, native, native::total_circuit_counts},
-    components::fold_revdot::NativeParameters,
+    internal::{native, native::total_circuit_counts},
     proof,
 };
 
@@ -25,105 +24,120 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         eval: &proof::Eval<C, R>,
         p: &proof::P<C, R>,
         preamble_witness: &native::stages::preamble::Witness<'_, C, R, HEADER_SIZE>,
-        error_n_witness: &native::stages::error_n::Witness<C, NativeParameters>,
-        error_m_witness: &native::stages::error_m::Witness<C, NativeParameters>,
-        query_witness: &circuits::native::stages::query::Witness<C>,
-        eval_witness: &circuits::native::stages::eval::Witness<C::CircuitField>,
+        error_n_witness: &native::stages::error_n::Witness<C, native::RevdotParameters>,
+        error_m_witness: &native::stages::error_m::Witness<C, native::RevdotParameters>,
+        query_witness: &native::stages::query::Witness<C>,
+        eval_witness: &native::stages::eval::Witness<C::CircuitField>,
         challenges: &proof::Challenges<C>,
     ) -> Result<proof::InternalCircuits<C, R>> {
         let unified = native::unified::Instance {
-            nested_preamble_commitment: preamble.nested_commitment,
+            bridge_preamble_commitment: preamble.bridge.commitment,
             w: challenges.w,
-            nested_s_prime_commitment: s_prime.nested_s_prime_commitment,
+            bridge_s_prime_commitment: s_prime.bridge.commitment,
             y: challenges.y,
             z: challenges.z,
-            nested_error_m_commitment: error_m.nested_commitment,
+            bridge_error_m_commitment: error_m.bridge.commitment,
             mu: challenges.mu,
             nu: challenges.nu,
-            nested_error_n_commitment: error_n.nested_commitment,
+            bridge_error_n_commitment: error_n.bridge.commitment,
             mu_prime: challenges.mu_prime,
             nu_prime: challenges.nu_prime,
-            c: ab.c,
-            nested_ab_commitment: ab.nested_commitment,
+            c: ab.native.c,
+            bridge_ab_commitment: ab.bridge.commitment,
             x: challenges.x,
-            nested_query_commitment: query.nested_commitment,
+            bridge_query_commitment: query.bridge.commitment,
             alpha: challenges.alpha,
-            nested_f_commitment: f.nested_commitment,
+            bridge_f_commitment: f.bridge.commitment,
             u: challenges.u,
-            nested_eval_commitment: eval.nested_commitment,
+            bridge_eval_commitment: eval.bridge.commitment,
             pre_beta: challenges.pre_beta,
-            v: p.v,
+            v: p.native.v,
             coverage: Default::default(),
         };
 
-        let (hashes_1_trace, unified) =
-            native::hashes_1::Circuit::<C, R, HEADER_SIZE, NativeParameters>::new(
-                self.params,
-                total_circuit_counts(self.num_application_steps).1,
-            )
-            .rx(native::hashes_1::Witness {
-                unified,
-                preamble_witness,
-                error_n_witness,
-            })?;
+        let (hashes_1_trace, unified) = native::circuits::hashes_1::Circuit::<
+            C,
+            R,
+            HEADER_SIZE,
+            native::RevdotParameters,
+        >::new(
+            self.params,
+            total_circuit_counts(self.num_application_steps).1,
+        )
+        .rx(native::circuits::hashes_1::Witness {
+            unified,
+            preamble_witness,
+            error_n_witness,
+        })?;
         let hashes_1_rx = self.native_registry.assemble(
             &hashes_1_trace,
-            native::hashes_1::CIRCUIT_ID.circuit_index(),
+            native::InternalCircuitIndex::Hashes1Circuit.circuit_index(),
         )?;
         let hashes_1_rx_blind = C::CircuitField::random(&mut *rng);
 
-        let (hashes_2_trace, unified) =
-            native::hashes_2::Circuit::<C, R, HEADER_SIZE, NativeParameters>::new(self.params).rx(
-                native::hashes_2::Witness {
-                    unified,
-                    error_n_witness,
-                },
-            )?;
+        let (hashes_2_trace, unified) = native::circuits::hashes_2::Circuit::<
+            C,
+            R,
+            HEADER_SIZE,
+            native::RevdotParameters,
+        >::new(self.params)
+        .rx(native::circuits::hashes_2::Witness {
+            unified,
+            error_n_witness,
+        })?;
         let hashes_2_rx = self.native_registry.assemble(
             &hashes_2_trace,
-            native::hashes_2::CIRCUIT_ID.circuit_index(),
+            native::InternalCircuitIndex::Hashes2Circuit.circuit_index(),
         )?;
         let hashes_2_rx_blind = C::CircuitField::random(&mut *rng);
 
-        let (partial_collapse_trace, unified) =
-            native::partial_collapse::Circuit::<C, R, HEADER_SIZE, NativeParameters>::new().rx(
-                native::partial_collapse::Witness {
-                    preamble_witness,
-                    unified,
-                    error_n_witness,
-                    error_m_witness,
-                },
-            )?;
+        let (partial_collapse_trace, unified) = native::circuits::partial_collapse::Circuit::<
+            C,
+            R,
+            HEADER_SIZE,
+            native::RevdotParameters,
+        >::new()
+        .rx(native::circuits::partial_collapse::Witness {
+            preamble_witness,
+            unified,
+            error_n_witness,
+            error_m_witness,
+        })?;
         let partial_collapse_rx = self.native_registry.assemble(
             &partial_collapse_trace,
-            native::partial_collapse::CIRCUIT_ID.circuit_index(),
+            native::InternalCircuitIndex::PartialCollapseCircuit.circuit_index(),
         )?;
         let partial_collapse_rx_blind = C::CircuitField::random(&mut *rng);
 
-        let (full_collapse_trace, unified) =
-            native::full_collapse::Circuit::<C, R, HEADER_SIZE, NativeParameters>::new().rx(
-                native::full_collapse::Witness {
-                    unified,
-                    preamble_witness,
-                    error_n_witness,
-                },
-            )?;
+        let (full_collapse_trace, unified) = native::circuits::full_collapse::Circuit::<
+            C,
+            R,
+            HEADER_SIZE,
+            native::RevdotParameters,
+        >::new()
+        .rx(native::circuits::full_collapse::Witness {
+            unified,
+            preamble_witness,
+            error_n_witness,
+        })?;
         let full_collapse_rx = self.native_registry.assemble(
             &full_collapse_trace,
-            native::full_collapse::CIRCUIT_ID.circuit_index(),
+            native::InternalCircuitIndex::FullCollapseCircuit.circuit_index(),
         )?;
         let full_collapse_rx_blind = C::CircuitField::random(&mut *rng);
 
-        let (compute_v_trace, unified) = native::compute_v::Circuit::<C, R, HEADER_SIZE>::new()
-            .rx(native::compute_v::Witness {
-                unified,
-                preamble_witness,
-                query_witness,
-                eval_witness,
-            })?;
+        let (compute_v_trace, unified) =
+            native::circuits::compute_v::Circuit::<C, R, HEADER_SIZE>::new().rx(
+                native::circuits::compute_v::Witness {
+                    unified,
+                    preamble_witness,
+                    query_witness,
+                    eval_witness,
+                },
+            )?;
         let compute_v_rx = self.native_registry.assemble(
             &compute_v_trace,
-            native::compute_v::CIRCUIT_ID.circuit_index(),
+            native::InternalCircuitIndex::ComputeVCircuit.circuit_index(),
         )?;
         let compute_v_rx_blind = C::CircuitField::random(&mut *rng);
 

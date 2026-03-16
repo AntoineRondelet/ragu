@@ -11,7 +11,7 @@ use ragu_core::{
 };
 
 use super::header::Header;
-use crate::circuits::native::NUM_INTERNAL_CIRCUITS;
+use crate::internal::native::NUM_INTERNAL_CIRCUITS;
 
 pub use encoder::Encoded;
 
@@ -54,8 +54,8 @@ impl Index {
 
     /// Returns the circuit index for this step.
     ///
-    /// Circuits are registered in the following order: internal masks,
-    /// internal circuits, internal steps, then application steps.
+    /// Circuits are registered in the following order: internal circuits,
+    /// internal masks, internal steps, then application steps.
     ///
     /// Pass the known number of application steps to validate and compute the
     /// final index of this step. Returns an error if an application step index
@@ -114,7 +114,7 @@ impl Index {
 
 #[test]
 fn test_index_map() -> Result<()> {
-    use crate::circuits::native::NUM_INTERNAL_CIRCUITS;
+    use crate::internal::native::NUM_INTERNAL_CIRCUITS;
 
     let num_application_steps = 10;
     let app_offset = NUM_INTERNAL_STEPS + NUM_INTERNAL_CIRCUITS;

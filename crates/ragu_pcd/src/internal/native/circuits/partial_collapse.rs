@@ -46,12 +46,12 @@
 //! [$c$]: unified::Output::c
 //! [$\mu$]: unified::Output::mu
 //! [$\nu$]: unified::Output::nu
-//! [`error_m`]: super::stages::error_m
-//! [`error_n`]: super::stages::error_n
-//! [`preamble`]: super::stages::preamble
+//! [`error_m`]: super::super::stages::error_m
+//! [`error_n`]: super::super::stages::error_n
+//! [`preamble`]: super::super::stages::preamble
 //! [`hashes_1`]: super::hashes_1
 //! [`FoldProducts::fold_products_m`]: fold_revdot::FoldProducts::fold_products_m
-//! [`TwoProofKySource`]: crate::components::claims::native::TwoProofKySource
+//! [`TwoProofKySource`]: crate::internal::native::claims::TwoProofKySource
 
 use ragu_arithmetic::Cycle;
 use ragu_circuits::{
@@ -68,16 +68,12 @@ use ragu_primitives::{Element, vec::FixedVec};
 
 use core::marker::PhantomData;
 
-use super::{
+use super::super::claims::{TwoProofKySource, ky_values};
+use super::super::{
     stages::{error_m as native_error_m, error_n as native_error_n, preamble as native_preamble},
     unified::{self, OutputBuilder},
 };
-use crate::components::{
-    claims::native::{TwoProofKySource, ky_values},
-    fold_revdot,
-};
-
-pub(crate) use super::InternalCircuitIndex::PartialCollapseCircuit as CIRCUIT_ID;
+use crate::internal::fold_revdot;
 
 /// Circuit that verifies layer 1 of the two-layer revdot reduction.
 ///
@@ -106,10 +102,10 @@ pub struct Witness<'a, C: Cycle, R: Rank, const HEADER_SIZE: usize, FP: fold_rev
     pub preamble_witness: &'a native_preamble::Witness<'a, C, R, HEADER_SIZE>,
     /// The unified instance containing challenges and accumulated coverage.
     pub unified: unified::Instance<C>,
-    /// Witness for the error_n stage (layer 2 error terms + collapsed values).
-    pub error_n_witness: &'a native_error_n::Witness<C, FP>,
     /// Witness for the error_m stage (layer 1 error terms).
     pub error_m_witness: &'a native_error_m::Witness<C, FP>,
+    /// Witness for the error_n stage (layer 2 error terms + collapsed values).
+    pub error_n_witness: &'a native_error_n::Witness<C, FP>,
 }
 
 impl<C: Cycle, R: Rank, const HEADER_SIZE: usize, FP: fold_revdot::Parameters>

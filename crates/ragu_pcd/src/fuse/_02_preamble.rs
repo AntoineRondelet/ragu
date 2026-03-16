@@ -11,7 +11,7 @@ use rand::CryptoRng;
 
 use crate::{
     Application, Proof,
-    circuits::{native::stages::preamble as native_preamble, nested},
+    internal::{native, nested},
     proof,
 };
 
@@ -24,40 +24,52 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         application: &proof::Application<C, R>,
     ) -> Result<(
         proof::Preamble<C, R>,
-        native_preamble::Witness<'a, C, R, HEADER_SIZE>,
+        native::stages::preamble::Witness<'a, C, R, HEADER_SIZE>,
     )> {
-        let preamble_witness = native_preamble::Witness::new(
+        let (native, preamble_witness) =
+            self.compute_native_preamble(rng, left, right, application)?;
+
+        let bridge = proof::Bridge::commit(
+            self.params,
+            rng,
+            nested::stages::preamble::Stage::<C::HostCurve, R>::rx(
+                &nested::stages::preamble::Witness {
+                    native_preamble: native.commitment,
+                    left: nested::stages::preamble::ChildWitness::from_proof(left),
+                    right: nested::stages::preamble::ChildWitness::from_proof(right),
+                },
+            )?,
+        );
+
+        Ok((proof::Preamble { native, bridge }, preamble_witness))
+    }
+
+    fn compute_native_preamble<'a, RNG: CryptoRng>(
+        &self,
+        rng: &mut RNG,
+        left: &'a Proof<C, R>,
+        right: &'a Proof<C, R>,
+        application: &proof::Application<C, R>,
+    ) -> Result<(
+        proof::NativePreamble<C, R>,
+        native::stages::preamble::Witness<'a, C, R, HEADER_SIZE>,
+    )> {
+        let preamble_witness = native::stages::preamble::Witness::new(
             left,
             right,
             &application.left_header,
             &application.right_header,
         )?;
 
-        let native_rx = native_preamble::Stage::<C, R, HEADER_SIZE>::rx(&preamble_witness)?;
-        let native_blind = C::CircuitField::random(&mut *rng);
-        let native_commitment =
-            native_rx.commit_to_affine(C::host_generators(self.params), native_blind);
-
-        let nested_preamble_witness = nested::stages::preamble::Witness {
-            native_preamble: native_commitment,
-            left: nested::stages::preamble::ChildWitness::from_proof(left),
-            right: nested::stages::preamble::ChildWitness::from_proof(right),
-        };
-
-        let nested_rx =
-            nested::stages::preamble::Stage::<C::HostCurve, R>::rx(&nested_preamble_witness)?;
-        let nested_blind = C::ScalarField::random(&mut *rng);
-        let nested_commitment =
-            nested_rx.commit_to_affine(C::nested_generators(self.params), nested_blind);
+        let rx = native::stages::preamble::Stage::<C, R, HEADER_SIZE>::rx(&preamble_witness)?;
+        let blind = C::CircuitField::random(&mut *rng);
+        let commitment = rx.commit_to_affine(C::host_generators(self.params), blind);
 
         Ok((
-            proof::Preamble {
-                native_rx,
-                native_blind,
-                native_commitment,
-                nested_rx,
-                nested_blind,
-                nested_commitment,
+            proof::NativePreamble {
+                rx,
+                blind,
+                commitment,
             },
             preamble_witness,
         ))

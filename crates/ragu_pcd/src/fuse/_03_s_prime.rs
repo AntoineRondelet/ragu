@@ -9,52 +9,60 @@ use ragu_circuits::{polynomials::Rank, registry::RegistryAt, staging::StageExt};
 use ragu_core::Result;
 use rand::CryptoRng;
 
-use crate::{Application, Proof, circuits::nested, proof};
+use crate::{Application, Proof, internal::nested, proof};
 
 impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_SIZE> {
     pub(super) fn compute_s_prime<RNG: CryptoRng>(
         &self,
         rng: &mut RNG,
-        registry_at_w: &RegistryAt<'_, C::CircuitField, R>,
+        native_registry: &RegistryAt<'_, C::CircuitField, R>,
         left: &Proof<C, R>,
         right: &Proof<C, R>,
     ) -> Result<proof::SPrime<C, R>> {
+        let native = self.compute_native_s_prime(rng, native_registry, left, right)?;
+
+        let bridge = proof::Bridge::commit(
+            self.params,
+            rng,
+            nested::stages::s_prime::Stage::<C::HostCurve, R>::rx(
+                &nested::stages::s_prime::Witness {
+                    registry_wx0: native.registry_wx0_commitment,
+                    registry_wx1: native.registry_wx1_commitment,
+                },
+            )?,
+        );
+
+        Ok(proof::SPrime { native, bridge })
+    }
+
+    fn compute_native_s_prime<RNG: CryptoRng>(
+        &self,
+        rng: &mut RNG,
+        native_registry: &RegistryAt<'_, C::CircuitField, R>,
+        left: &Proof<C, R>,
+        right: &Proof<C, R>,
+    ) -> Result<proof::NativeSPrime<C, R>> {
         let x0 = left.challenges.x;
         let x1 = right.challenges.x;
 
-        let native_registry_wx0_poly = registry_at_w.wx(x0);
-        let native_registry_wx0_blind = C::CircuitField::random(&mut *rng);
-        let native_registry_wx1_poly = registry_at_w.wx(x1);
-        let native_registry_wx1_blind = C::CircuitField::random(&mut *rng);
+        let registry_wx0_poly = native_registry.x(x0);
+        let registry_wx0_blind = C::CircuitField::random(&mut *rng);
+        let registry_wx1_poly = native_registry.x(x1);
+        let registry_wx1_blind = C::CircuitField::random(&mut *rng);
         let host_gen = C::host_generators(self.params);
-        let [
-            native_registry_wx0_commitment,
-            native_registry_wx1_commitment,
-        ] = ragu_arithmetic::batch_to_affine([
-            native_registry_wx0_poly.commit(host_gen, native_registry_wx0_blind),
-            native_registry_wx1_poly.commit(host_gen, native_registry_wx1_blind),
-        ]);
+        let [registry_wx0_commitment, registry_wx1_commitment] =
+            ragu_arithmetic::batch_to_affine([
+                registry_wx0_poly.commit(host_gen, registry_wx0_blind),
+                registry_wx1_poly.commit(host_gen, registry_wx1_blind),
+            ]);
 
-        let nested_s_prime_witness = nested::stages::s_prime::Witness {
-            registry_wx0: native_registry_wx0_commitment,
-            registry_wx1: native_registry_wx1_commitment,
-        };
-        let nested_s_prime_rx =
-            nested::stages::s_prime::Stage::<C::HostCurve, R>::rx(&nested_s_prime_witness)?;
-        let nested_s_prime_blind = C::ScalarField::random(&mut *rng);
-        let nested_s_prime_commitment = nested_s_prime_rx
-            .commit_to_affine(C::nested_generators(self.params), nested_s_prime_blind);
-
-        Ok(proof::SPrime {
-            registry_wx0_poly: native_registry_wx0_poly,
-            registry_wx0_blind: native_registry_wx0_blind,
-            registry_wx0_commitment: native_registry_wx0_commitment,
-            registry_wx1_poly: native_registry_wx1_poly,
-            registry_wx1_blind: native_registry_wx1_blind,
-            registry_wx1_commitment: native_registry_wx1_commitment,
-            nested_s_prime_rx,
-            nested_s_prime_blind,
-            nested_s_prime_commitment,
+        Ok(proof::NativeSPrime {
+            registry_wx0_poly,
+            registry_wx0_blind,
+            registry_wx0_commitment,
+            registry_wx1_poly,
+            registry_wx1_blind,
+            registry_wx1_commitment,
         })
     }
 }

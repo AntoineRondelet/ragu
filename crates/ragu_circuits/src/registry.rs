@@ -70,17 +70,19 @@ impl From<CircuitIndex> for usize {
 
 /// A builder that constructs a [`Registry`].
 ///
-/// Circuits are organized into three categories:
+/// Circuits are organized into four categories:
+/// - Internal circuits: system circuits for the PCD construction
 /// - Internal masks: stage masks and final masks for internal stages
-/// - Internal circuits: system circuits and internal steps
+/// - Internal steps: internal step circuits (e.g. rerandomize, trivial)
 /// - Application steps: user-defined application step circuits
 ///
-/// During finalization, circuits are concatenated in registration order,
-/// ensuring internal masks can be optimized separately from circuits
-/// while maintaining proper PCD indexing.
+/// During finalization, circuits are concatenated in the order above,
+/// ensuring internal circuits get lower indices while maintaining
+/// proper PCD indexing.
 pub struct RegistryBuilder<'params, F: PrimeField, R: Rank> {
-    internal_masks: Vec<Box<dyn CircuitObject<F, R> + 'params>>,
     internal_circuits: Vec<Box<dyn CircuitObject<F, R> + 'params>>,
+    internal_masks: Vec<Box<dyn CircuitObject<F, R> + 'params>>,
+    internal_steps: Vec<Box<dyn CircuitObject<F, R> + 'params>>,
     application_steps: Vec<Box<dyn CircuitObject<F, R> + 'params>>,
 }
 
@@ -94,20 +96,21 @@ impl<'params, F: FromUniformBytes<64>, R: Rank> RegistryBuilder<'params, F, R> {
     /// Creates a new empty [`Registry`] builder.
     pub fn new() -> Self {
         Self {
-            internal_masks: Vec::new(),
             internal_circuits: Vec::new(),
+            internal_masks: Vec::new(),
+            internal_steps: Vec::new(),
             application_steps: Vec::new(),
         }
     }
 
-    /// Returns the number of internal circuits (masks + circuits).
+    /// Returns the number of internal circuits (circuits + masks).
     pub fn num_internal_circuits(&self) -> usize {
         self.internal_masks.len() + self.internal_circuits.len()
     }
 
     /// Returns the total number of circuits across all categories.
     pub fn num_circuits(&self) -> usize {
-        self.num_internal_circuits() + self.application_steps.len()
+        self.num_internal_circuits() + self.internal_steps.len() + self.application_steps.len()
     }
 
     /// Returns the log2 of the smallest power-of-2 domain size that fits all circuits.
@@ -133,6 +136,15 @@ impl<'params, F: FromUniformBytes<64>, R: Rank> RegistryBuilder<'params, F, R> {
         Ok(self)
     }
 
+    /// Registers an internal step circuit.
+    pub fn register_internal_step<C>(mut self, circuit: C) -> Result<Self>
+    where
+        C: Circuit<F> + 'params,
+    {
+        self.internal_steps.push(circuit.into_object()?);
+        Ok(self)
+    }
+
     /// Registers an internal stage mask.
     pub fn register_internal_mask<S>(mut self) -> Result<Self>
     where
@@ -154,13 +166,13 @@ impl<'params, F: FromUniformBytes<64>, R: Rank> RegistryBuilder<'params, F, R> {
     /// Builds the [`Registry`].
     ///
     /// Circuits are concatenated in the following order for proper indexing:
-    /// 1. Internal masks: Stage enforcement masks and final masks
-    /// 2. Internal circuits: System circuits and internal steps
-    /// 3. Application steps: User-defined step circuits
+    /// 1. Internal circuits: System circuits for the PCD construction
+    /// 2. Internal masks: Stage enforcement masks and final masks
+    /// 3. Internal steps: Internal step circuits (e.g. rerandomize, trivial)
+    /// 4. Application steps: User-defined step circuits
     ///
-    /// This ordering ensures internal masks can be optimized separately while
-    /// maintaining proper PCD indexing where internal items occupy indices
-    /// $0 \ldots N$ and application steps occupy indices $N$ onward.
+    /// This concatenation order must match `InternalCircuitIndex::ALL` in
+    /// `ragu_pcd`, which derives [`CircuitIndex`] from position in the array.
     pub fn finalize(self) -> Result<Registry<'params, F, R>>
     where
         F: FromUniformBytes<64>,
@@ -176,9 +188,10 @@ impl<'params, F: FromUniformBytes<64>, R: Rank> RegistryBuilder<'params, F, R> {
         let domain = Domain::<F>::new(log2_circuits);
 
         let circuits: Vec<_> = self
-            .internal_masks
+            .internal_circuits
             .into_iter()
-            .chain(self.internal_circuits)
+            .chain(self.internal_masks)
+            .chain(self.internal_steps)
             .chain(self.application_steps)
             .collect();
 
@@ -399,11 +412,11 @@ impl<F: PrimeField, R: Rank> Registry<'_, F, R> {
     /// Index the $i$th circuit to field element $\omega^j$ as $w$, and evaluate
     /// the registry polynomial unrestricted at $X$.
     ///
-    /// Wraps [`Registry::at`] and [`RegistryAt::wy`].
+    /// Wraps [`Registry::at`] and [`RegistryAt::y`].
     /// See [`CircuitIndex::omega_j`] for more details.
     pub fn circuit_y(&self, i: CircuitIndex, y: F) -> structured::Polynomial<F, R> {
         let w: F = i.omega_j();
-        self.at(w).wy(y)
+        self.at(w).y(y)
     }
 
     /// Returns true if the circuit's $\omega^j$ value is in the registry domain.
@@ -416,17 +429,17 @@ impl<F: PrimeField, R: Rank> Registry<'_, F, R> {
 
     /// Evaluate the registry polynomial unrestricted at $X$.
     pub fn wy(&self, w: F, y: F) -> structured::Polynomial<F, R> {
-        self.at(w).wy(y)
+        self.at(w).y(y)
     }
 
     /// Evaluate the registry polynomial unrestricted at $Y$.
     pub fn wx(&self, w: F, x: F) -> unstructured::Polynomial<F, R> {
-        self.at(w).wx(x)
+        self.at(w).x(x)
     }
 
     /// Evaluate the registry polynomial at the provided point.
     pub fn wxy(&self, w: F, x: F, y: F) -> F {
-        self.at(w).wxy(x, y)
+        self.at(w).xy(x, y)
     }
 
     /// Computes the polynomial restricted at $W$ based on the provided
@@ -488,7 +501,7 @@ impl<F: PrimeField, R: Rank> Registry<'_, F, R> {
 
 impl<F: PrimeField, R: Rank> RegistryAt<'_, F, R> {
     /// Evaluate the registry polynomial restricted at $W$, unrestricted at $Y$.
-    pub fn wy(&self, y: F) -> structured::Polynomial<F, R> {
+    pub fn y(&self, y: F) -> structured::Polynomial<F, R> {
         self.registry.w_cached(
             &self.cache,
             structured::Polynomial::default,
@@ -501,7 +514,7 @@ impl<F: PrimeField, R: Rank> RegistryAt<'_, F, R> {
     }
 
     /// Evaluate the registry polynomial restricted at $W$, unrestricted at $X$.
-    pub fn wx(&self, x: F) -> unstructured::Polynomial<F, R> {
+    pub fn x(&self, x: F) -> unstructured::Polynomial<F, R> {
         self.registry.w_cached(
             &self.cache,
             unstructured::Polynomial::default,
@@ -514,7 +527,7 @@ impl<F: PrimeField, R: Rank> RegistryAt<'_, F, R> {
     }
 
     /// Evaluate the registry polynomial at the point ($W$, $X$, $Y$).
-    pub fn wxy(&self, x: F, y: F) -> F {
+    pub fn xy(&self, x: F, y: F) -> F {
         self.registry.w_cached(
             &self.cache,
             || F::ZERO,
@@ -667,29 +680,29 @@ mod tests {
         let registry_at_w = registry.at(w);
 
         assert_eq!(
-            registry_at_w.wx(x).eval(eval_point),
+            registry_at_w.x(x).eval(eval_point),
             registry.wx(w, x).eval(eval_point)
         );
         assert_eq!(
-            registry_at_w.wy(y).eval(eval_point),
+            registry_at_w.y(y).eval(eval_point),
             registry.wy(w, y).eval(eval_point)
         );
-        assert_eq!(registry_at_w.wxy(x, y), registry.wxy(w, x, y));
+        assert_eq!(registry_at_w.xy(x, y), registry.wxy(w, x, y));
 
         // Test with w in domain (omega^j)
         let w_in_domain = registry.domain.omega();
         let registry_at_w_in_domain = registry.at(w_in_domain);
 
         assert_eq!(
-            registry_at_w_in_domain.wx(x).eval(eval_point),
+            registry_at_w_in_domain.x(x).eval(eval_point),
             registry.wx(w_in_domain, x).eval(eval_point)
         );
         assert_eq!(
-            registry_at_w_in_domain.wy(y).eval(eval_point),
+            registry_at_w_in_domain.y(y).eval(eval_point),
             registry.wy(w_in_domain, y).eval(eval_point)
         );
         assert_eq!(
-            registry_at_w_in_domain.wxy(x, y),
+            registry_at_w_in_domain.xy(x, y),
             registry.wxy(w_in_domain, x, y)
         );
 
@@ -710,7 +723,7 @@ mod tests {
 
         let x = Fp::from(42u64);
         let y = Fp::from(43u64);
-        assert_ne!(registry.at(w).wxy(x, y), registry.at(omega).wxy(x, y));
+        assert_ne!(registry.at(w).xy(x, y), registry.at(omega).xy(x, y));
 
         Ok(())
     }
@@ -737,7 +750,7 @@ mod tests {
 
         let x = Fp::from(42u64);
         let y = Fp::from(43u64);
-        assert_ne!(registry.at(w).wxy(x, y), registry.at(omega).wxy(x, y));
+        assert_ne!(registry.at(w).xy(x, y), registry.at(omega).xy(x, y));
 
         Ok(())
     }
@@ -965,6 +978,35 @@ mod tests {
             .finalize()?;
 
         assert_eq!(registry2.circuits().len(), 4);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_registry_with_internal_steps() -> Result<()> {
+        let builder = TestRegistryBuilder::new()
+            .register_internal_circuit(SquareCircuit { times: 1 })?
+            .register_internal_circuit(SquareCircuit { times: 2 })?
+            .register_internal_step(SquareCircuit { times: 3 })?
+            .register_internal_step(SquareCircuit { times: 4 })?
+            .register_circuit(SquareCircuit { times: 5 })?;
+
+        // num_internal_circuits counts masks + circuits only (not steps)
+        assert_eq!(builder.num_internal_circuits(), 2);
+        // num_circuits counts all categories
+        assert_eq!(builder.num_circuits(), 5);
+
+        let registry = builder.finalize()?;
+        assert_eq!(registry.circuits().len(), 5);
+
+        // Verify evaluation consistency
+        let w = Fp::random(&mut rand::rng());
+        let x = Fp::random(&mut rand::rng());
+        let y = Fp::random(&mut rand::rng());
+
+        let wxy = registry.wxy(w, x, y);
+        let xy = registry.xy(x, y);
+        assert_eq!(wxy, xy.eval(w));
 
         Ok(())
     }

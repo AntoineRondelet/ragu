@@ -14,48 +14,27 @@ use ragu_primitives::{Element, io::Write};
 use core::marker::PhantomData;
 
 use crate::Proof;
-
-pub(crate) use crate::circuits::native::InternalCircuitIndex::EvalStage as STAGING_ID;
+use crate::internal::native::RxValues;
 
 /// Pre-computed polynomial evaluations at $u$ (from the parent fuse operation)
 /// for a child proof.
 pub struct ChildEvaluationsWitness<F> {
-    pub application: F,
-    pub preamble: F,
-    pub error_n: F,
-    pub error_m: F,
+    pub rx: RxValues<F>,
     pub a_poly: F,
     pub b_poly: F,
-    pub query: F,
     pub registry_xy_poly: F,
-    pub eval: F,
     pub p_poly: F,
-    pub hashes_1: F,
-    pub hashes_2: F,
-    pub partial_collapse: F,
-    pub full_collapse: F,
-    pub compute_v: F,
 }
 
 impl<F: PrimeField> ChildEvaluationsWitness<F> {
     /// Create child evaluations witness from a proof evaluated at point u.
     pub fn from_proof<C: Cycle<CircuitField = F>, R: Rank>(proof: &Proof<C, R>, u: F) -> Self {
         ChildEvaluationsWitness {
-            application: proof.application.rx.eval(u),
-            preamble: proof.preamble.native_rx.eval(u),
-            error_n: proof.error_n.native_rx.eval(u),
-            error_m: proof.error_m.native_rx.eval(u),
-            a_poly: proof.ab.a_poly.eval(u),
-            b_poly: proof.ab.b_poly.eval(u),
-            query: proof.query.native_rx.eval(u),
-            registry_xy_poly: proof.query.registry_xy_poly.eval(u),
-            eval: proof.eval.native_rx.eval(u),
-            p_poly: proof.p.poly.eval(u),
-            hashes_1: proof.circuits.hashes_1_rx.eval(u),
-            hashes_2: proof.circuits.hashes_2_rx.eval(u),
-            partial_collapse: proof.circuits.partial_collapse_rx.eval(u),
-            full_collapse: proof.circuits.full_collapse_rx.eval(u),
-            compute_v: proof.circuits.compute_v_rx.eval(u),
+            rx: RxValues::from_fn(|id| proof.rx_poly(id).eval(u)),
+            a_poly: proof.ab.native.a_poly.eval(u),
+            b_poly: proof.ab.native.b_poly.eval(u),
+            registry_xy_poly: proof.query.native.registry_xy_poly.eval(u),
+            p_poly: proof.p.native.poly.eval(u),
         }
     }
 }
@@ -87,35 +66,15 @@ pub struct Witness<F> {
 #[derive(Gadget, Write)]
 pub struct ChildEvaluations<'dr, D: Driver<'dr>> {
     #[ragu(gadget)]
-    pub application: Element<'dr, D>,
-    #[ragu(gadget)]
-    pub preamble: Element<'dr, D>,
-    #[ragu(gadget)]
-    pub error_n: Element<'dr, D>,
-    #[ragu(gadget)]
-    pub error_m: Element<'dr, D>,
+    pub rx: RxValues<Element<'dr, D>>,
     #[ragu(gadget)]
     pub a_poly: Element<'dr, D>,
     #[ragu(gadget)]
     pub b_poly: Element<'dr, D>,
     #[ragu(gadget)]
-    pub query: Element<'dr, D>,
-    #[ragu(gadget)]
     pub registry_xy_poly: Element<'dr, D>,
     #[ragu(gadget)]
-    pub eval: Element<'dr, D>,
-    #[ragu(gadget)]
     pub p_poly: Element<'dr, D>,
-    #[ragu(gadget)]
-    pub hashes_1: Element<'dr, D>,
-    #[ragu(gadget)]
-    pub hashes_2: Element<'dr, D>,
-    #[ragu(gadget)]
-    pub partial_collapse: Element<'dr, D>,
-    #[ragu(gadget)]
-    pub full_collapse: Element<'dr, D>,
-    #[ragu(gadget)]
-    pub compute_v: Element<'dr, D>,
 }
 
 impl<'dr, D: Driver<'dr>> ChildEvaluations<'dr, D> {
@@ -124,22 +83,15 @@ impl<'dr, D: Driver<'dr>> ChildEvaluations<'dr, D> {
         dr: &mut D,
         witness: DriverValue<D, &ChildEvaluationsWitness<D::F>>,
     ) -> Result<Self> {
+        let rx = RxValues::try_from_fn(|id| {
+            Element::alloc(dr, witness.as_ref().map(|w| *w.rx.get(id)))
+        })?;
         Ok(ChildEvaluations {
-            application: Element::alloc(dr, witness.as_ref().map(|w| w.application))?,
-            preamble: Element::alloc(dr, witness.as_ref().map(|w| w.preamble))?,
-            error_n: Element::alloc(dr, witness.as_ref().map(|w| w.error_n))?,
-            error_m: Element::alloc(dr, witness.as_ref().map(|w| w.error_m))?,
+            rx,
             a_poly: Element::alloc(dr, witness.as_ref().map(|w| w.a_poly))?,
             b_poly: Element::alloc(dr, witness.as_ref().map(|w| w.b_poly))?,
-            query: Element::alloc(dr, witness.as_ref().map(|w| w.query))?,
             registry_xy_poly: Element::alloc(dr, witness.as_ref().map(|w| w.registry_xy_poly))?,
-            eval: Element::alloc(dr, witness.as_ref().map(|w| w.eval))?,
             p_poly: Element::alloc(dr, witness.as_ref().map(|w| w.p_poly))?,
-            hashes_1: Element::alloc(dr, witness.as_ref().map(|w| w.hashes_1))?,
-            hashes_2: Element::alloc(dr, witness.as_ref().map(|w| w.hashes_2))?,
-            partial_collapse: Element::alloc(dr, witness.as_ref().map(|w| w.partial_collapse))?,
-            full_collapse: Element::alloc(dr, witness.as_ref().map(|w| w.full_collapse))?,
-            compute_v: Element::alloc(dr, witness.as_ref().map(|w| w.compute_v))?,
         })
     }
 }
@@ -217,7 +169,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> staging::Stage<C::CircuitField
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::circuits::native::stages::tests::{HEADER_SIZE, R, assert_stage_values};
+    use crate::internal::native::stages::tests::{HEADER_SIZE, R, assert_stage_values};
     use ragu_pasta::Pasta;
 
     #[test]

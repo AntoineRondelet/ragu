@@ -33,22 +33,17 @@ use ragu_circuits::{
     polynomials::{Rank, structured},
     staging::StageExt,
 };
-use ragu_core::{
-    Result,
-    drivers::Driver,
-    maybe::{Always, Maybe},
-};
+use ragu_core::{Result, drivers::Driver, maybe::Maybe};
 use ragu_primitives::{Element, vec::FixedVec};
 use rand::CryptoRng;
 
 use crate::{
     Application,
-    circuits::nested,
-    components::fold_revdot::{self, NativeParameters},
+    internal::{fold_revdot, native, nested},
     proof,
 };
 
-type NativeN = <NativeParameters as fold_revdot::Parameters>::N;
+type NativeN = <native::RevdotParameters as fold_revdot::Parameters>::N;
 
 impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_SIZE> {
     pub(super) fn compute_ab<'dr, D, RNG: CryptoRng>(
@@ -60,16 +55,42 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         nu_prime: &Element<'dr, D>,
     ) -> Result<proof::AB<C, R>>
     where
-        D: Driver<'dr, F = C::CircuitField, MaybeKind = Always<()>>,
+        D: Driver<'dr, F = C::CircuitField>,
+    {
+        let native = self.compute_native_ab(rng, a, b, mu_prime, nu_prime)?;
+
+        let bridge = proof::Bridge::commit(
+            self.params,
+            rng,
+            nested::stages::ab::Stage::<C::HostCurve, R>::rx(&nested::stages::ab::Witness {
+                a: native.a_commitment,
+                b: native.b_commitment,
+            })?,
+        );
+
+        Ok(proof::AB { native, bridge })
+    }
+
+    fn compute_native_ab<'dr, D, RNG: CryptoRng>(
+        &self,
+        rng: &mut RNG,
+        a: FixedVec<structured::Polynomial<C::CircuitField, R>, NativeN>,
+        b: FixedVec<structured::Polynomial<C::CircuitField, R>, NativeN>,
+        mu_prime: &Element<'dr, D>,
+        nu_prime: &Element<'dr, D>,
+    ) -> Result<proof::NativeAB<C, R>>
+    where
+        D: Driver<'dr, F = C::CircuitField>,
     {
         let mu_prime = *mu_prime.value().take();
         let nu_prime = *nu_prime.value().take();
         let mu_prime_inv = mu_prime.invert().expect("mu_prime must be non-zero");
         let mu_prime_nu_prime = mu_prime * nu_prime;
 
-        let a_poly = fold_revdot::fold_polys_n::<_, R, NativeParameters>(a, mu_prime_inv);
+        let a_poly = fold_revdot::fold_polys_n::<_, R, native::RevdotParameters>(a, mu_prime_inv);
         let a_blind = C::CircuitField::random(&mut *rng);
-        let b_poly = fold_revdot::fold_polys_n::<_, R, NativeParameters>(b, mu_prime_nu_prime);
+        let b_poly =
+            fold_revdot::fold_polys_n::<_, R, native::RevdotParameters>(b, mu_prime_nu_prime);
         let b_blind = C::CircuitField::random(&mut *rng);
         let host_gen = C::host_generators(self.params);
         let [a_commitment, b_commitment] = ragu_arithmetic::batch_to_affine([
@@ -79,16 +100,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
 
         let c = a_poly.revdot(&b_poly);
 
-        let nested_ab_witness = nested::stages::ab::Witness {
-            a: a_commitment,
-            b: b_commitment,
-        };
-        let nested_rx = nested::stages::ab::Stage::<C::HostCurve, R>::rx(&nested_ab_witness)?;
-        let nested_blind = C::ScalarField::random(&mut *rng);
-        let nested_commitment =
-            nested_rx.commit_to_affine(C::nested_generators(self.params), nested_blind);
-
-        Ok(proof::AB {
+        Ok(proof::NativeAB {
             a_poly,
             a_blind,
             a_commitment,
@@ -96,9 +108,6 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
             b_blind,
             b_commitment,
             c,
-            nested_rx,
-            nested_blind,
-            nested_commitment,
         })
     }
 }

@@ -7,32 +7,32 @@
 //! This circuit performs the first portion of the Fiat-Shamir transcript,
 //! invoking $3$ Poseidon permutations:
 //! - Initialize the transcript with domain separation tag.
-//! - Absorb [`nested_preamble_commitment`].
+//! - Absorb [`bridge_preamble_commitment`].
 //! - Squeeze [$w$] challenge.
-//! - Absorb [`nested_s_prime_commitment`].
+//! - Absorb [`bridge_s_prime_commitment`].
 //! - Squeeze [$y$] and [$z$] challenges.
-//! - Absorb [`nested_error_m_commitment`].
+//! - Absorb [`bridge_error_m_commitment`].
 //! - Call [`Transcript::save_state`] to capture the transcript state for resumption
 //!   in [`hashes_2`][super::hashes_2]. This applies a permutation (the third) since we're at the
 //!   absorb-to-squeeze boundary.
-//! - Verify the saved state matches the witnessed value from [`error_n`][super::stages::error_n].
+//! - Verify the saved state matches the witnessed value from [`error_n`][super::super::stages::error_n].
 //!
 //! The squeezed $w, y, z$ challenges are set in the unified instance by this
 //! circuit. **The rest of the transcript computations are performed in the
 //! [`hashes_2`][super::hashes_2] circuit.** The sponge state is witnessed in
-//! the [`error_n`][super::stages::error_n] stage and verified here to
+//! the [`error_n`][super::super::stages::error_n] stage and verified here to
 //! enable resumption in `hashes_2`.
 //!
 //! ### $k(y)$ evaluations
 //!
 //! This circuit also is responsible for using the derived $y$ value to compute
 //! the $k(y)$ (instance polynomial evaluations) for the child proofs. These
-//! are witnessed in the [`error_n`][super::stages::error_n] stage and
+//! are witnessed in the [`error_n`][super::super::stages::error_n] stage and
 //! enforced to be consistent by this circuit.
 //!
 //! ### Valid circuit IDs
 //!
-//! The circuit IDs in the [`preamble`][super::stages::preamble] are
+//! The circuit IDs in the [`preamble`][super::super::stages::preamble] are
 //! enforced to be valid roots of unity in the registry domain (the domain over
 //! which circuits are indexed). Other circuits can thus assume this check has
 //! been performed.
@@ -40,16 +40,16 @@
 //! ## Staging
 //!
 //! This circuit is a multi-stage circuit based on the
-//! [`error_n`][super::stages::error_n] stage, which inherits in the
+//! [`error_n`][super::super::stages::error_n] stage, which inherits in the
 //! following chain:
-//! - [`preamble`][super::stages::preamble] (unenforced)
-//! - [`error_n`][super::stages::error_n] (unenforced)
+//! - [`preamble`][super::super::stages::preamble] (unenforced)
+//! - [`error_n`][super::super::stages::error_n] (unenforced)
 //!
 //! ## Instance
 //!
 //! The instance is special for this internal circuit: it contains a
 //! concatenation of the unified instance and the `left` and `right` child
-//! proofs' output headers from the [`preamble`][super::stages::preamble]
+//! proofs' output headers from the [`preamble`][super::super::stages::preamble]
 //! stage (i.e., the headers that the
 //! child steps produced, not the headers they consumed). This allows the
 //! verifier to ensure consistency with the headers enforced on the application
@@ -63,14 +63,14 @@
 //! zero aligns the internal circuit's instance with the expected format for
 //! $k(y)$ verification.
 //!
-//! [`nested_preamble_commitment`]: unified::Output::nested_preamble_commitment
-//! [`nested_s_prime_commitment`]: unified::Output::nested_s_prime_commitment
-//! [`nested_error_m_commitment`]: unified::Output::nested_error_m_commitment
+//! [`bridge_preamble_commitment`]: unified::Output::bridge_preamble_commitment
+//! [`bridge_s_prime_commitment`]: unified::Output::bridge_s_prime_commitment
+//! [`bridge_error_m_commitment`]: unified::Output::bridge_error_m_commitment
 //! [$w$]: unified::Output::w
 //! [$y$]: unified::Output::y
 //! [$z$]: unified::Output::z
-//! [`WithSuffix`]: crate::components::suffix::WithSuffix
-//! [`Transcript::save_state`]: crate::components::transcript::Transcript::save_state
+//! [`WithSuffix`]: crate::internal::suffix::WithSuffix
+//! [`Transcript::save_state`]: crate::internal::transcript::Transcript::save_state
 
 use ragu_arithmetic::Cycle;
 use ragu_circuits::{
@@ -91,14 +91,13 @@ use ragu_primitives::{
 
 use core::marker::PhantomData;
 
-use super::{
+use super::super::{
     stages::{error_n as native_error_n, preamble as native_preamble},
     unified::{self, OutputBuilder},
 };
 use crate::RAGU_TAG;
-use crate::components::{fold_revdot, root_of_unity, suffix::WithSuffix, transcript::Transcript};
-
-pub(crate) use super::InternalCircuitIndex::Hashes1Circuit as CIRCUIT_ID;
+use crate::internal::fold_revdot;
+use crate::internal::{suffix::WithSuffix, transcript::Transcript};
 
 /// Public output of the first hash circuit.
 ///
@@ -165,13 +164,13 @@ pub struct Witness<'a, C: Cycle, R: Rank, const HEADER_SIZE: usize, FP: fold_rev
     /// accumulated coverage from prior circuits.
     pub unified: unified::Instance<C>,
 
-    /// Witness for the [`preamble`](super::stages::preamble) stage
+    /// Witness for the [`preamble`](super::super::stages::preamble) stage
     /// (unenforced).
     ///
     /// Provides output headers and data for computing $k(y)$ evaluations.
     pub preamble_witness: &'a native_preamble::Witness<'a, C, R, HEADER_SIZE>,
 
-    /// Witness for the [`error_n`](super::stages::error_n) stage
+    /// Witness for the [`error_n`](super::super::stages::error_n) stage
     /// (unenforced).
     ///
     /// Provides the saved sponge state and pre-computed $k(y)$ values for
@@ -221,27 +220,33 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize, FP: fold_revdot::Parameters>
         let error_n = error_n.unenforced(dr, witness.as_ref().map(|w| w.error_n_witness))?;
 
         // Verify circuit IDs are valid roots of unity in the registry domain.
-        root_of_unity::enforce(dr, preamble.left.circuit_id.clone(), self.log2_circuits)?;
-        root_of_unity::enforce(dr, preamble.right.circuit_id.clone(), self.log2_circuits)?;
+        preamble
+            .left
+            .circuit_id
+            .enforce_root_of_unity(dr, self.log2_circuits)?;
+        preamble
+            .right
+            .circuit_id
+            .enforce_root_of_unity(dr, self.log2_circuits)?;
 
         let mut unified_output = OutputBuilder::new(witness.map(|w| w.unified));
 
         // Create a transcript for all challenge derivations
         let mut transcript = Transcript::new(dr, C::circuit_poseidon(self.params), RAGU_TAG)?;
 
-        // Derive w by absorbing nested_preamble_commitment and squeezing
+        // Derive w by absorbing bridge_preamble_commitment and squeezing
         let w = {
-            let nested_preamble_commitment =
-                unified_output.nested_preamble_commitment.verify(dr)?;
-            nested_preamble_commitment.write(dr, &mut transcript)?;
+            let bridge_preamble_commitment =
+                unified_output.bridge_preamble_commitment.verify(dr)?;
+            bridge_preamble_commitment.write(dr, &mut transcript)?;
             transcript.challenge(dr)?
         };
         unified_output.w.set(w.clone());
 
-        // Derive (y, z) by absorbing nested_s_prime_commitment and squeezing twice
+        // Derive (y, z) by absorbing bridge_s_prime_commitment and squeezing twice
         let (y, z) = {
-            let nested_s_prime_commitment = unified_output.nested_s_prime_commitment.verify(dr)?;
-            nested_s_prime_commitment.write(dr, &mut transcript)?;
+            let bridge_s_prime_commitment = unified_output.bridge_s_prime_commitment.verify(dr)?;
+            bridge_s_prime_commitment.write(dr, &mut transcript)?;
             let y = transcript.challenge(dr)?;
             let z = transcript.challenge(dr)?;
             (y, z)
@@ -269,10 +274,10 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize, FP: fold_revdot::Parameters>
             right_unified_bridge_ky.enforce_equal(dr, &error_n.right.unified_bridge)?;
         }
 
-        // Absorb nested_error_m_commitment and verify saved transcript state
+        // Absorb bridge_error_m_commitment and verify saved transcript state
         {
-            let nested_error_m_commitment = unified_output.nested_error_m_commitment.verify(dr)?;
-            nested_error_m_commitment.write(dr, &mut transcript)?;
+            let bridge_error_m_commitment = unified_output.bridge_error_m_commitment.verify(dr)?;
+            bridge_error_m_commitment.write(dr, &mut transcript)?;
 
             // save_state() applies a permutation (since there's pending absorbed data)
             // and returns the raw state, ready for squeeze-mode resumption in hashes_2.
