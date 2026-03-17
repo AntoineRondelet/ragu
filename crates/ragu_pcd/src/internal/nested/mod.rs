@@ -75,22 +75,26 @@ impl InternalCircuitIndex {
 
     const fn all_slots() -> [Option<Self>; NUM_INTERNAL_CIRCUITS] {
         let mut slots = [None; NUM_INTERNAL_CIRCUITS];
-        let mut i = 0;
-        while i < NUM_ENDOSCALING_STEPS {
-            slots[i] = Some(Self::EndoscalingStep(i as u32));
-            i += 1;
+        let mut c = 0;
+        {
+            let mut step = 0;
+            while step < NUM_ENDOSCALING_STEPS {
+                push(&mut slots, &mut c, Self::EndoscalingStep(step as u32));
+                step += 1;
+            }
         }
-        slots[NUM_ENDOSCALING_STEPS] = Some(Self::EndoscalarStage);
-        slots[NUM_ENDOSCALING_STEPS + 1] = Some(Self::PointsStage);
-        slots[NUM_ENDOSCALING_STEPS + 2] = Some(Self::PointsFinalStaged);
-        slots[NUM_ENDOSCALING_STEPS + 3] = Some(Self::BridgePreamble);
-        slots[NUM_ENDOSCALING_STEPS + 4] = Some(Self::BridgeSPrime);
-        slots[NUM_ENDOSCALING_STEPS + 5] = Some(Self::BridgeErrorM);
-        slots[NUM_ENDOSCALING_STEPS + 6] = Some(Self::BridgeErrorN);
-        slots[NUM_ENDOSCALING_STEPS + 7] = Some(Self::BridgeAB);
-        slots[NUM_ENDOSCALING_STEPS + 8] = Some(Self::BridgeQuery);
-        slots[NUM_ENDOSCALING_STEPS + 9] = Some(Self::BridgeF);
-        slots[NUM_ENDOSCALING_STEPS + 10] = Some(Self::BridgeEval);
+        push(&mut slots, &mut c, Self::EndoscalarStage);
+        push(&mut slots, &mut c, Self::PointsStage);
+        push(&mut slots, &mut c, Self::PointsFinalStaged);
+        push(&mut slots, &mut c, Self::BridgePreamble);
+        push(&mut slots, &mut c, Self::BridgeSPrime);
+        push(&mut slots, &mut c, Self::BridgeErrorM);
+        push(&mut slots, &mut c, Self::BridgeErrorN);
+        push(&mut slots, &mut c, Self::BridgeAB);
+        push(&mut slots, &mut c, Self::BridgeQuery);
+        push(&mut slots, &mut c, Self::BridgeF);
+        push(&mut slots, &mut c, Self::BridgeEval);
+        assert!(c == NUM_INTERNAL_CIRCUITS);
         slots
     }
 
@@ -151,21 +155,25 @@ impl RxIndex {
 
     const fn all_slots() -> [Option<Self>; NUM_RX_COMPONENTS] {
         let mut slots = [None; NUM_RX_COMPONENTS];
-        let mut i = 0;
-        while i < NUM_ENDOSCALING_STEPS {
-            slots[i] = Some(Self::EndoscalingStep(i as u32));
-            i += 1;
+        let mut c = 0;
+        {
+            let mut step = 0;
+            while step < NUM_ENDOSCALING_STEPS {
+                push(&mut slots, &mut c, Self::EndoscalingStep(step as u32));
+                step += 1;
+            }
         }
-        slots[NUM_ENDOSCALING_STEPS] = Some(Self::EndoscalarStage);
-        slots[NUM_ENDOSCALING_STEPS + 1] = Some(Self::PointsStage);
-        slots[NUM_ENDOSCALING_STEPS + 2] = Some(Self::BridgePreamble);
-        slots[NUM_ENDOSCALING_STEPS + 3] = Some(Self::BridgeSPrime);
-        slots[NUM_ENDOSCALING_STEPS + 4] = Some(Self::BridgeErrorM);
-        slots[NUM_ENDOSCALING_STEPS + 5] = Some(Self::BridgeErrorN);
-        slots[NUM_ENDOSCALING_STEPS + 6] = Some(Self::BridgeAB);
-        slots[NUM_ENDOSCALING_STEPS + 7] = Some(Self::BridgeQuery);
-        slots[NUM_ENDOSCALING_STEPS + 8] = Some(Self::BridgeF);
-        slots[NUM_ENDOSCALING_STEPS + 9] = Some(Self::BridgeEval);
+        push(&mut slots, &mut c, Self::EndoscalarStage);
+        push(&mut slots, &mut c, Self::PointsStage);
+        push(&mut slots, &mut c, Self::BridgePreamble);
+        push(&mut slots, &mut c, Self::BridgeSPrime);
+        push(&mut slots, &mut c, Self::BridgeErrorM);
+        push(&mut slots, &mut c, Self::BridgeErrorN);
+        push(&mut slots, &mut c, Self::BridgeAB);
+        push(&mut slots, &mut c, Self::BridgeQuery);
+        push(&mut slots, &mut c, Self::BridgeF);
+        push(&mut slots, &mut c, Self::BridgeEval);
+        assert!(c == NUM_RX_COMPONENTS);
         slots
     }
 }
@@ -239,6 +247,12 @@ pub fn register_all<'params, C: Cycle, R: Rank>(
     );
 
     Ok(registry)
+}
+
+/// Assigns `val` into the next slot and advances the counter.
+const fn push<T: Copy, const N: usize>(slots: &mut [Option<T>; N], c: &mut usize, val: T) {
+    slots[*c] = Some(val);
+    *c += 1;
 }
 
 /// Unwraps every element of an `Option` array at compile time.
