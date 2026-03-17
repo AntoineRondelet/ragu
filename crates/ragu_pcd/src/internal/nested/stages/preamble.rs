@@ -29,10 +29,10 @@ pub struct ChildWitness<C: CurveAffine> {
     pub hashes_1: C,
     /// Commitment from the child's second hashes circuit.
     pub hashes_2: C,
-    /// Commitment from the child's partial collapse circuit.
-    pub partial_collapse: C,
-    /// Commitment from the child's full collapse circuit.
-    pub full_collapse: C,
+    /// Commitment from the child's inner collapse circuit.
+    pub inner_collapse: C,
+    /// Commitment from the child's outer collapse circuit.
+    pub outer_collapse: C,
     /// Commitment from the child's compute_v circuit.
     pub compute_v: C,
 }
@@ -45,8 +45,8 @@ impl<C: CurveAffine> ChildWitness<C> {
             application: proof[RxIndex::Application].commitment,
             hashes_1: proof[RxIndex::Hashes1].commitment,
             hashes_2: proof[RxIndex::Hashes2].commitment,
-            partial_collapse: proof[RxIndex::PartialCollapse].commitment,
-            full_collapse: proof[RxIndex::FullCollapse].commitment,
+            inner_collapse: proof[RxIndex::InnerCollapse].commitment,
+            outer_collapse: proof[RxIndex::OuterCollapse].commitment,
             compute_v: proof[RxIndex::ComputeV].commitment,
         }
     }
@@ -74,12 +74,12 @@ pub struct ChildOutput<'dr, D: Driver<'dr>, C: CurveAffine<Base = D::F>> {
     /// Point commitment from the child's second hashes circuit.
     #[ragu(gadget)]
     pub hashes_2: Point<'dr, D, C>,
-    /// Point commitment from the child's partial collapse circuit.
+    /// Point commitment from the child's inner collapse circuit.
     #[ragu(gadget)]
-    pub partial_collapse: Point<'dr, D, C>,
-    /// Point commitment from the child's full collapse circuit.
+    pub inner_collapse: Point<'dr, D, C>,
+    /// Point commitment from the child's outer collapse circuit.
     #[ragu(gadget)]
-    pub full_collapse: Point<'dr, D, C>,
+    pub outer_collapse: Point<'dr, D, C>,
     /// Point commitment from the child's compute_v circuit.
     #[ragu(gadget)]
     pub compute_v: Point<'dr, D, C>,
@@ -91,8 +91,8 @@ impl<'dr, D: Driver<'dr>, C: CurveAffine<Base = D::F>> ChildOutput<'dr, D, C> {
             application: Point::alloc(dr, witness.as_ref().map(|w| w.application))?,
             hashes_1: Point::alloc(dr, witness.as_ref().map(|w| w.hashes_1))?,
             hashes_2: Point::alloc(dr, witness.as_ref().map(|w| w.hashes_2))?,
-            partial_collapse: Point::alloc(dr, witness.as_ref().map(|w| w.partial_collapse))?,
-            full_collapse: Point::alloc(dr, witness.as_ref().map(|w| w.full_collapse))?,
+            inner_collapse: Point::alloc(dr, witness.as_ref().map(|w| w.inner_collapse))?,
+            outer_collapse: Point::alloc(dr, witness.as_ref().map(|w| w.outer_collapse))?,
             compute_v: Point::alloc(dr, witness.as_ref().map(|w| w.compute_v))?,
         })
     }

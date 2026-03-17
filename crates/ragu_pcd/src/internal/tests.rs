@@ -2,7 +2,7 @@ use super::*;
 use crate::*;
 use native::{
     InternalCircuitIndex, InternalCircuitValues, RevdotParameters, RxIndex, RxValues,
-    stages::{error_m, error_n, eval, preamble, query},
+    stages::{eval, inner_error, outer_error, preamble, query},
 };
 use ragu_circuits::staging::{Stage, StageExt};
 use ragu_pasta::{Pasta, fp, fq};
@@ -19,8 +19,8 @@ pub const HEADER_SIZE: usize = 65;
 const NUM_APP_STEPS: usize = 6000;
 
 type Preamble = preamble::Stage<Pasta, R, HEADER_SIZE>;
-type ErrorN = error_n::Stage<Pasta, R, HEADER_SIZE, RevdotParameters>;
-type ErrorM = error_m::Stage<Pasta, R, HEADER_SIZE, RevdotParameters>;
+type OuterError = outer_error::Stage<Pasta, R, HEADER_SIZE, RevdotParameters>;
+type InnerError = inner_error::Stage<Pasta, R, HEADER_SIZE, RevdotParameters>;
 type Query = query::Stage<Pasta, R, HEADER_SIZE>;
 type Eval = eval::Stage<Pasta, R, HEADER_SIZE>;
 
@@ -63,8 +63,8 @@ fn test_internal_circuit_constraint_counts() {
 
     check_constraints!(Hashes1Circuit,         mul = 2045, lin = 3423);
     check_constraints!(Hashes2Circuit,         mul = 1879, lin = 2952);
-    check_constraints!(PartialCollapseCircuit, mul = 1756, lin = 1919);
-    check_constraints!(FullCollapseCircuit,    mul = 811 , lin = 809);
+    check_constraints!(InnerCollapseCircuit,  mul = 1756, lin = 1919);
+    check_constraints!(OuterCollapseCircuit,  mul = 811 , lin = 809);
     check_constraints!(ComputeVCircuit,        mul = 1140, lin = 1774);
 }
 
@@ -79,8 +79,8 @@ fn test_internal_stage_parameters() {
     }
 
     check_stage!(Preamble, skip =   0, num = 225);
-    check_stage!(ErrorN,  skip = 225, num = 186);
-    check_stage!(ErrorM,  skip = 411, num = 399);
+    check_stage!(OuterError,  skip = 225, num = 186);
+    check_stage!(InnerError,  skip = 411, num = 399);
     check_stage!(Query,   skip = 225, num =  23);
     check_stage!(Eval,    skip = 248, num =  18);
 }
@@ -107,12 +107,12 @@ fn print_internal_circuit_constraint_counts() {
         ("Hashes1Circuit", InternalCircuitIndex::Hashes1Circuit),
         ("Hashes2Circuit", InternalCircuitIndex::Hashes2Circuit),
         (
-            "PartialCollapseCircuit",
-            InternalCircuitIndex::PartialCollapseCircuit,
+            "InnerCollapseCircuit",
+            InternalCircuitIndex::InnerCollapseCircuit,
         ),
         (
-            "FullCollapseCircuit",
-            InternalCircuitIndex::FullCollapseCircuit,
+            "OuterCollapseCircuit",
+            InternalCircuitIndex::OuterCollapseCircuit,
         ),
         ("ComputeVCircuit", InternalCircuitIndex::ComputeVCircuit),
     ];
@@ -154,8 +154,8 @@ fn print_internal_stage_parameters() {
 
     println!("\n// Copy-paste the following into test_internal_stage_parameters:");
     print_stage!(Preamble);
-    print_stage!(ErrorN);
-    print_stage!(ErrorM);
+    print_stage!(OuterError);
+    print_stage!(InnerError);
     print_stage!(Query);
     print_stage!(Eval);
 }

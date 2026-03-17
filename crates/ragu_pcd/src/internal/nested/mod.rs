@@ -46,10 +46,10 @@ pub enum InternalCircuitIndex {
     BridgePreamble,
     /// Bridge `s_prime` stage mask.
     BridgeSPrime,
-    /// Bridge `error_m` stage mask.
-    BridgeErrorM,
-    /// Bridge `error_n` stage mask.
-    BridgeErrorN,
+    /// Bridge `inner_error` stage mask.
+    BridgeInnerError,
+    /// Bridge `outer_error` stage mask.
+    BridgeOuterError,
     /// Bridge `ab` stage mask.
     BridgeAB,
     /// Bridge `query` stage mask.
@@ -88,8 +88,8 @@ impl InternalCircuitIndex {
         super::push(&mut slots, &mut c, Self::PointsFinalStaged);
         super::push(&mut slots, &mut c, Self::BridgePreamble);
         super::push(&mut slots, &mut c, Self::BridgeSPrime);
-        super::push(&mut slots, &mut c, Self::BridgeErrorM);
-        super::push(&mut slots, &mut c, Self::BridgeErrorN);
+        super::push(&mut slots, &mut c, Self::BridgeInnerError);
+        super::push(&mut slots, &mut c, Self::BridgeOuterError);
         super::push(&mut slots, &mut c, Self::BridgeAB);
         super::push(&mut slots, &mut c, Self::BridgeQuery);
         super::push(&mut slots, &mut c, Self::BridgeF);
@@ -128,10 +128,10 @@ pub enum RxIndex {
     BridgePreamble,
     /// Bridge `s_prime` rx polynomial.
     BridgeSPrime,
-    /// Bridge `error_m` rx polynomial.
-    BridgeErrorM,
-    /// Bridge `error_n` rx polynomial.
-    BridgeErrorN,
+    /// Bridge `inner_error` rx polynomial.
+    BridgeInnerError,
+    /// Bridge `outer_error` rx polynomial.
+    BridgeOuterError,
     /// Bridge `ab` rx polynomial.
     BridgeAB,
     /// Bridge `query` rx polynomial.
@@ -167,8 +167,8 @@ impl RxIndex {
         super::push(&mut slots, &mut c, Self::PointsStage);
         super::push(&mut slots, &mut c, Self::BridgePreamble);
         super::push(&mut slots, &mut c, Self::BridgeSPrime);
-        super::push(&mut slots, &mut c, Self::BridgeErrorM);
-        super::push(&mut slots, &mut c, Self::BridgeErrorN);
+        super::push(&mut slots, &mut c, Self::BridgeInnerError);
+        super::push(&mut slots, &mut c, Self::BridgeOuterError);
         super::push(&mut slots, &mut c, Self::BridgeAB);
         super::push(&mut slots, &mut c, Self::BridgeQuery);
         super::push(&mut slots, &mut c, Self::BridgeF);
@@ -219,11 +219,11 @@ pub fn register_all<'params, C: Cycle, R: Rank>(
             BridgeSPrime => {
                 registry.register_internal_mask::<stages::s_prime::Stage<C::HostCurve, R>>()?
             }
-            BridgeErrorM => {
-                registry.register_internal_mask::<stages::error_m::Stage<C::HostCurve, R>>()?
+            BridgeInnerError => {
+                registry.register_internal_mask::<stages::inner_error::Stage<C::HostCurve, R>>()?
             }
-            BridgeErrorN => {
-                registry.register_internal_mask::<stages::error_n::Stage<C::HostCurve, R>>()?
+            BridgeOuterError => {
+                registry.register_internal_mask::<stages::outer_error::Stage<C::HostCurve, R>>()?
             }
             BridgeAB => {
                 registry.register_internal_mask::<stages::ab::Stage<C::HostCurve, R>>()?

@@ -99,11 +99,11 @@ where
             BridgeSPrime => {
                 processor.stage(id, source.rx(RxIndex::BridgeSPrime))?;
             }
-            BridgeErrorM => {
-                processor.stage(id, source.rx(RxIndex::BridgeErrorM))?;
+            BridgeInnerError => {
+                processor.stage(id, source.rx(RxIndex::BridgeInnerError))?;
             }
-            BridgeErrorN => {
-                processor.stage(id, source.rx(RxIndex::BridgeErrorN))?;
+            BridgeOuterError => {
+                processor.stage(id, source.rx(RxIndex::BridgeOuterError))?;
             }
             BridgeAB => {
                 processor.stage(id, source.rx(RxIndex::BridgeAB))?;

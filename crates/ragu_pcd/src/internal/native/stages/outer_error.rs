@@ -1,4 +1,4 @@
-//! Error stage (layer 2) for fuse operations.
+//! Outer error stage (layer 2) for fuse operations.
 //!
 //! This stage handles the final N-sized revdot claim reduction.
 
@@ -39,7 +39,7 @@ pub struct KyValues<F> {
     pub right: ChildKyValues<F>,
 }
 
-/// Witness data for the error_n stage (layer 2).
+/// Witness data for the outer error stage (layer 2).
 ///
 /// Contains $N^2 - N$ error terms for the second layer of reduction, plus the
 /// $N$ collapsed values from layer 1 folding, and the saved sponge state for
@@ -55,7 +55,7 @@ pub struct Witness<C: Cycle, FP: fold_revdot::Parameters> {
     /// $k(y)$ evaluation values.
     pub ky: KyValues<C::CircuitField>,
 
-    /// Sponge state elements saved after absorbing bridge_error_m_commitment.
+    /// Sponge state elements saved after absorbing bridge_inner_error_commitment.
     /// Used to bridge the Fiat-Shamir transcript between hashes_1 and hashes_2.
     pub sponge_state_elements:
         FixedVec<C::CircuitField, PoseidonStateLen<C::CircuitField, C::CircuitPoseidon>>,
@@ -75,7 +75,7 @@ pub struct ChildKyOutputs<'dr, D: Driver<'dr>> {
     pub unified_bridge: Element<'dr, D>,
 }
 
-/// Prover-internal output gadget for the error_n stage.
+/// Prover-internal output gadget for the outer error stage.
 ///
 /// This is stage communication data, not part of the circuit's public instance.
 #[derive(Gadget, Consistent)]
@@ -97,13 +97,13 @@ pub struct Output<
     /// k(y) values for right child proof.
     #[ragu(gadget)]
     pub right: ChildKyOutputs<'dr, D>,
-    /// Sponge state saved after absorbing bridge_error_m_commitment.
+    /// Sponge state saved after absorbing bridge_inner_error_commitment.
     /// Used to bridge the Fiat-Shamir transcript between hashes_1 and hashes_2.
     #[ragu(gadget)]
     pub sponge_state: SpongeState<'dr, D, Poseidon>,
 }
 
-/// The error_n stage (layer 2) of the fuse witness.
+/// The outer error stage (layer 2) of the fuse witness.
 #[derive(Default)]
 pub struct Stage<C: Cycle, R, const HEADER_SIZE: usize, FP: fold_revdot::Parameters> {
     _marker: PhantomData<(C, R, FP)>,

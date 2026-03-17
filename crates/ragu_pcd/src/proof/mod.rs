@@ -65,8 +65,8 @@ pub struct Proof<C: Cycle, R: Rank> {
     pub(crate) application: Application<C, R>,
     pub(crate) preamble: Preamble<C, R>,
     pub(crate) s_prime: SPrime<C, R>,
-    pub(crate) error_m: ErrorM<C, R>,
-    pub(crate) error_n: ErrorN<C, R>,
+    pub(crate) inner_error: InnerError<C, R>,
+    pub(crate) outer_error: OuterError<C, R>,
     pub(crate) ab: AB<C, R>,
     pub(crate) query: Query<C, R>,
     pub(crate) f: F<C, R>,
@@ -82,15 +82,15 @@ impl<C: Cycle, R: Rank> core::ops::Index<RxIndex> for Proof<C, R> {
         use RxIndex::*;
         match idx {
             Preamble => &self.preamble.native,
-            ErrorM => &self.error_m.native.rx_triple,
-            ErrorN => &self.error_n.native,
+            InnerError => &self.inner_error.native.rx_triple,
+            OuterError => &self.outer_error.native,
             Query => &self.query.native.rx_triple,
             Eval => &self.eval.native,
             Application => &self.application.rx_triple,
             Hashes1 => &self.circuits.hashes_1,
             Hashes2 => &self.circuits.hashes_2,
-            PartialCollapse => &self.circuits.partial_collapse,
-            FullCollapse => &self.circuits.full_collapse,
+            InnerCollapse => &self.circuits.inner_collapse,
+            OuterCollapse => &self.circuits.outer_collapse,
             ComputeV => &self.circuits.compute_v,
         }
     }
@@ -106,8 +106,8 @@ impl<C: Cycle, R: Rank> core::ops::Index<nested::RxIndex> for Proof<C, R> {
             PointsStage => &self.p.nested.points_rx,
             BridgePreamble => &self.preamble.bridge.rx,
             BridgeSPrime => &self.s_prime.bridge.rx,
-            BridgeErrorM => &self.error_m.bridge.rx,
-            BridgeErrorN => &self.error_n.bridge.rx,
+            BridgeInnerError => &self.inner_error.bridge.rx,
+            BridgeOuterError => &self.outer_error.bridge.rx,
             BridgeAB => &self.ab.bridge.rx,
             BridgeQuery => &self.query.bridge.rx,
             BridgeF => &self.f.bridge.rx,
@@ -203,8 +203,8 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> crate::Application<'_, C, R, H
                 },
                 bridge: trivial_bridge.clone(),
             },
-            error_m: ErrorM {
-                native: NativeErrorM {
+            inner_error: InnerError {
+                native: NativeInnerError {
                     registry_wy_poly: zero_structured_host.clone(),
                     registry_wy_blind: host_blind,
                     registry_wy_commitment: host_commitment,
@@ -212,7 +212,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> crate::Application<'_, C, R, H
                 },
                 bridge: trivial_bridge.clone(),
             },
-            error_n: ErrorN {
+            outer_error: OuterError {
                 native: trivial_rx_triple(),
                 bridge: trivial_bridge.clone(),
             },
@@ -269,8 +269,8 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> crate::Application<'_, C, R, H
             circuits: InternalCircuits {
                 hashes_1: trivial_rx_triple(),
                 hashes_2: trivial_rx_triple(),
-                partial_collapse: trivial_rx_triple(),
-                full_collapse: trivial_rx_triple(),
+                inner_collapse: trivial_rx_triple(),
+                outer_collapse: trivial_rx_triple(),
                 compute_v: trivial_rx_triple(),
             },
         }

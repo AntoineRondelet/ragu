@@ -115,16 +115,16 @@ define_bridge_stage!(s_prime, parent = super::preamble::Stage<C, R>, fields = {
     registry_wx1: C,
 });
 
-define_bridge_stage!(error_m, parent = super::s_prime::Stage<C, R>, fields = {
-    native_error_m: C,
+define_bridge_stage!(inner_error, parent = super::s_prime::Stage<C, R>, fields = {
+    native_inner_error: C,
     registry_wy: C,
 });
 
-define_bridge_stage!(error_n, parent = super::error_m::Stage<C, R>, fields = {
-    native_error_n: C,
+define_bridge_stage!(outer_error, parent = super::inner_error::Stage<C, R>, fields = {
+    native_outer_error: C,
 });
 
-define_bridge_stage!(ab, parent = super::error_n::Stage<C, R>, fields = {
+define_bridge_stage!(ab, parent = super::outer_error::Stage<C, R>, fields = {
     a: C,
     b: C,
 });

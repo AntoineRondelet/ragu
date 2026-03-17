@@ -1,8 +1,8 @@
 //! Commit to the error (off-diagonal) terms of the second revdot folding
 //! reduction.
 //!
-//! This creates the [`proof::ErrorN`] component of the proof, which commits to
-//! the `error_n` stage. The stage contains the error terms and is used to store
+//! This creates the [`proof::OuterError`] component of the proof, which commits to
+//! the `outer_error` stage. The stage contains the error terms and is used to store
 //! the $k(Y)$ evaluations for the child proofs, as well as the temporary sponge
 //! state used to split the hashing operations across two circuits.
 
@@ -24,7 +24,7 @@ use crate::{
     Application,
     internal::{
         fold_revdot, native,
-        native::stages::error_n::{ChildKyValues, KyValues},
+        native::stages::outer_error::{ChildKyValues, KyValues},
         nested,
     },
     proof,
@@ -39,7 +39,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         &self,
         rng: &mut RNG,
         preamble_witness: &native::stages::preamble::Witness<'_, C, R, HEADER_SIZE>,
-        error_m_witness: &native::stages::error_m::Witness<C, native::RevdotParameters>,
+        inner_error_witness: &native::stages::inner_error::Witness<C, native::RevdotParameters>,
         claims: FuseBuilder<'_, 'rx, C::CircuitField, R>,
         y: &Element<'dr, D>,
         mu: &Element<'dr, D>,
@@ -49,8 +49,8 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
             ragu_primitives::poseidon::PoseidonStateLen<C::CircuitField, C::CircuitPoseidon>,
         >,
     ) -> Result<(
-        proof::ErrorN<C, R>,
-        native::stages::error_n::Witness<C, native::RevdotParameters>,
+        proof::OuterError<C, R>,
+        native::stages::outer_error::Witness<C, native::RevdotParameters>,
         FixedVec<TrackedPoly<'rx, FoldKey, C::CircuitField, R>, NativeNumGroups>,
         FixedVec<structured::Polynomial<C::CircuitField, R>, NativeNumGroups>,
     )>
@@ -67,9 +67,15 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         drop(claims);
 
         let (ky, collapsed) = Emulator::emulate_wireless(
-            (preamble_witness, &error_m_witness.error_terms, y, mu, nu),
+            (
+                preamble_witness,
+                &inner_error_witness.error_terms,
+                y,
+                mu,
+                nu,
+            ),
             |dr, witness| {
-                let (preamble_witness, error_terms_m, y, mu, nu) = witness.cast();
+                let (preamble_witness, inner_error_terms, y, mu, nu) = witness.cast();
 
                 let preamble = native::stages::preamble::Stage::<C, R, HEADER_SIZE>::default()
                     .witness(dr, preamble_witness.as_ref().map(|w| *w))?;
@@ -80,12 +86,12 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
                 let (right_unified_ky, right_unified_bridge_ky) =
                     preamble.right.unified_ky_values(dr, &y)?;
 
-                let left_ky = native::stages::error_n::ChildKyOutputs {
+                let left_ky = native::stages::outer_error::ChildKyOutputs {
                     application: preamble.left.application_ky(dr, &y)?,
                     unified: left_unified_ky,
                     unified_bridge: left_unified_bridge_ky,
                 };
-                let right_ky = native::stages::error_n::ChildKyOutputs {
+                let right_ky = native::stages::outer_error::ChildKyOutputs {
                     application: preamble.right.application_ky(dr, &y)?,
                     unified: right_unified_ky,
                     unified_bridge: right_unified_bridge_ky,
@@ -108,7 +114,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
 
                 let collapsed = FixedVec::try_from_fn(|i| {
                     let errors = FixedVec::try_from_fn(|j| {
-                        Element::alloc(dr, error_terms_m.as_ref().map(|et| et[i][j]))
+                        Element::alloc(dr, inner_error_terms.as_ref().map(|et| et[i][j]))
                     })?;
                     let ky = FixedVec::from_fn(|_| ky.next().unwrap());
 
@@ -136,35 +142,42 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
 
         let error_terms = fold_revdot::outer_error_terms::<_, R, native::RevdotParameters>(&a, &b);
 
-        let error_n_witness = native::stages::error_n::Witness::<C, native::RevdotParameters> {
-            error_terms,
-            collapsed,
-            ky,
-            sponge_state_elements,
-        };
-        let native = self.compute_native_error_n(rng, &error_n_witness)?;
+        let outer_error_witness =
+            native::stages::outer_error::Witness::<C, native::RevdotParameters> {
+                error_terms,
+                collapsed,
+                ky,
+                sponge_state_elements,
+            };
+        let native = self.compute_native_outer_error(rng, &outer_error_witness)?;
 
         let bridge = proof::Bridge::commit(
             self.params,
             rng,
-            nested::stages::error_n::Stage::<C::HostCurve, R>::rx(
-                &nested::stages::error_n::Witness {
-                    native_error_n: native.commitment,
+            nested::stages::outer_error::Stage::<C::HostCurve, R>::rx(
+                &nested::stages::outer_error::Witness {
+                    native_outer_error: native.commitment,
                 },
             )?,
         );
 
-        Ok((proof::ErrorN { native, bridge }, error_n_witness, a, b))
+        Ok((
+            proof::OuterError { native, bridge },
+            outer_error_witness,
+            a,
+            b,
+        ))
     }
 
-    fn compute_native_error_n<RNG: CryptoRng>(
+    fn compute_native_outer_error<RNG: CryptoRng>(
         &self,
         rng: &mut RNG,
-        error_n_witness: &native::stages::error_n::Witness<C, native::RevdotParameters>,
+        outer_error_witness: &native::stages::outer_error::Witness<C, native::RevdotParameters>,
     ) -> Result<proof::RxTriple<C, R>> {
-        let rx = native::stages::error_n::Stage::<C, R, HEADER_SIZE, native::RevdotParameters>::rx(
-            error_n_witness,
-        )?;
+        let rx =
+            native::stages::outer_error::Stage::<C, R, HEADER_SIZE, native::RevdotParameters>::rx(
+                outer_error_witness,
+            )?;
         let blind = C::CircuitField::random(&mut *rng);
         let commitment = rx.commit_to_affine(C::host_generators(self.params), blind);
 
