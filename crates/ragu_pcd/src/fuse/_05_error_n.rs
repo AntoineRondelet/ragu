@@ -23,22 +23,24 @@ use rand::CryptoRng;
 use crate::{
     Application,
     internal::{
-        claims, fold_revdot, native,
+        fold_revdot, native,
         native::stages::error_n::{ChildKyValues, KyValues},
         nested,
     },
     proof,
 };
 
+use super::claims::{FuseAtom, FuseBuilder, TrackedPoly};
+
 type NativeN = <native::RevdotParameters as fold_revdot::Parameters>::N;
 
 impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_SIZE> {
-    pub(super) fn compute_errors_n<'dr, D, RNG: CryptoRng>(
+    pub(super) fn compute_errors_n<'dr, 'rx, D, RNG: CryptoRng>(
         &self,
         rng: &mut RNG,
         preamble_witness: &native::stages::preamble::Witness<'_, C, R, HEADER_SIZE>,
         error_m_witness: &native::stages::error_m::Witness<C, native::RevdotParameters>,
-        claims: claims::Builder<'_, '_, C::CircuitField, R>,
+        claims: FuseBuilder<'_, 'rx, C::CircuitField, R>,
         y: &Element<'dr, D>,
         mu: &Element<'dr, D>,
         nu: &Element<'dr, D>,
@@ -49,7 +51,7 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
     ) -> Result<(
         proof::ErrorN<C, R>,
         native::stages::error_n::Witness<C, native::RevdotParameters>,
-        FixedVec<structured::Polynomial<C::CircuitField, R>, NativeN>,
+        FixedVec<TrackedPoly<'rx, FuseAtom, C::CircuitField, R>, NativeN>,
         FixedVec<structured::Polynomial<C::CircuitField, R>, NativeN>,
     )>
     where
@@ -60,8 +62,8 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         let nu = *nu.value().take();
         let mu_inv = mu.invert().expect("mu must be non-zero");
         let munu = mu * nu;
-        let a = fold_revdot::fold_polys_m::<_, R, native::RevdotParameters>(&claims.a, mu_inv);
-        let b = fold_revdot::fold_polys_m::<_, R, native::RevdotParameters>(&claims.b, munu);
+        let a = fold_revdot::fold_polys_m::<_, _, native::RevdotParameters>(&claims.a, mu_inv);
+        let b = fold_revdot::fold_polys_m::<_, _, native::RevdotParameters>(&claims.b, munu);
         drop(claims);
 
         let (ky, collapsed) = Emulator::emulate_wireless(
@@ -154,14 +156,14 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         &self,
         rng: &mut RNG,
         error_n_witness: &native::stages::error_n::Witness<C, native::RevdotParameters>,
-    ) -> Result<proof::NativeErrorN<C, R>> {
+    ) -> Result<proof::RxTriple<C, R>> {
         let rx = native::stages::error_n::Stage::<C, R, HEADER_SIZE, native::RevdotParameters>::rx(
             error_n_witness,
         )?;
         let blind = C::CircuitField::random(&mut *rng);
         let commitment = rx.commit_to_affine(C::host_generators(self.params), blind);
 
-        Ok(proof::NativeErrorN {
+        Ok(proof::RxTriple {
             rx,
             blind,
             commitment,

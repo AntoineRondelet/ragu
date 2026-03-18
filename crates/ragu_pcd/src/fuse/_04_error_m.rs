@@ -15,12 +15,12 @@ use ragu_primitives::Element;
 use rand::CryptoRng;
 
 use crate::{
-    Application, Proof,
+    Application,
     internal::{claims, fold_revdot, native, nested},
     proof,
 };
 
-use super::FuseProofSource;
+use super::claims::{FuseBuilder, FuseProofSource};
 
 impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_SIZE> {
     pub(super) fn compute_errors_m<'dr, 'rx, D, RNG: CryptoRng>(
@@ -29,25 +29,24 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         native_registry: &RegistryAt<'_, C::CircuitField, R>,
         y: &Element<'dr, D>,
         z: &Element<'dr, D>,
-        left: &'rx Proof<C, R>,
-        right: &'rx Proof<C, R>,
+        source: &FuseProofSource<'rx, C, R>,
     ) -> Result<(
         proof::ErrorM<C, R>,
         native::stages::error_m::Witness<C, native::RevdotParameters>,
-        claims::Builder<'_, 'rx, C::CircuitField, R>,
+        FuseBuilder<'_, 'rx, C::CircuitField, R>,
     )>
     where
         D: Driver<'dr, F = C::CircuitField>,
     {
         let (native_error_m, error_m_witness, builder) =
-            self.compute_native_error_m(rng, native_registry, y, z, left, right)?;
+            self.compute_native_error_m(rng, native_registry, y, z, source)?;
 
         let bridge = proof::Bridge::commit(
             self.params,
             rng,
             nested::stages::error_m::Stage::<C::HostCurve, R>::rx(
                 &nested::stages::error_m::Witness {
-                    native_error_m: native_error_m.commitment,
+                    native_error_m: native_error_m.rx_triple.commitment,
                     registry_wy: native_error_m.registry_wy_commitment,
                 },
             )?,
@@ -69,12 +68,11 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         native_registry: &RegistryAt<'_, C::CircuitField, R>,
         y: &Element<'dr, D>,
         z: &Element<'dr, D>,
-        left: &'rx Proof<C, R>,
-        right: &'rx Proof<C, R>,
+        source: &FuseProofSource<'rx, C, R>,
     ) -> Result<(
         proof::NativeErrorM<C, R>,
         native::stages::error_m::Witness<C, native::RevdotParameters>,
-        claims::Builder<'_, 'rx, C::CircuitField, R>,
+        FuseBuilder<'_, 'rx, C::CircuitField, R>,
     )>
     where
         D: Driver<'dr, F = C::CircuitField>,
@@ -82,9 +80,8 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
         let y = *y.value().take();
         let z = *z.value().take();
 
-        let source = FuseProofSource { left, right };
         let mut builder = claims::Builder::new(&self.native_registry, y, z);
-        native::claims::build(&source, &mut builder)?;
+        native::claims::build(source, &mut builder)?;
 
         let error_m_witness = native::stages::error_m::Witness::<C, native::RevdotParameters> {
             error_terms: fold_revdot::compute_errors_m::<_, R, native::RevdotParameters>(
@@ -112,9 +109,11 @@ impl<C: Cycle, R: Rank, const HEADER_SIZE: usize> Application<'_, C, R, HEADER_S
                 registry_wy_poly,
                 registry_wy_blind,
                 registry_wy_commitment,
-                rx: native_rx,
-                blind: native_blind,
-                commitment: native_commitment,
+                rx_triple: proof::RxTriple {
+                    rx: native_rx,
+                    blind: native_blind,
+                    commitment: native_commitment,
+                },
             },
             error_m_witness,
             builder,

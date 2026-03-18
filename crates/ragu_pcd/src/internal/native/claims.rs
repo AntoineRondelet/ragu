@@ -50,6 +50,9 @@ const NUM_UNIFIED_CIRCUITS: usize = 4;
 /// - **Polynomial context** ([`Builder`]): `Rx` is a polynomial
 ///   reference. The processor accumulates polynomials for error term
 ///   construction.
+/// - **Fuse path** ([`Builder`] with `TrackedPoly` `A`): `Rx` is an
+///   `Atom` pairing a polynomial reference with a `FuseAtom` key for
+///   commitment decomposition tracking (see `fuse::claims`).
 /// - **Evaluation context**: `Rx` carries a single evaluated field element at
 ///   $xz$. Both the `ax` and `bx` vectors derive from this shared evaluation:
 ///   `ax` uses $r\_i(xz)$ directly (since $A$ has no dilation), while `bx` adds
@@ -73,7 +76,7 @@ pub trait Processor<Rx, AppCircuitId> {
 }
 
 impl<'m, 'rx, F: PrimeField, R: Rank> Processor<&'rx structured::Polynomial<F, R>, CircuitIndex>
-    for Builder<'m, 'rx, F, R>
+    for Builder<'m, 'rx, Cow<'rx, structured::Polynomial<F, R>>, F, R>
 {
     fn raw_claim(
         &mut self,
@@ -104,7 +107,9 @@ impl<'m, 'rx, F: PrimeField, R: Rank> Processor<&'rx structured::Polynomial<F, R
         rxs: impl Iterator<Item = &'rx structured::Polynomial<F, R>>,
     ) -> Result<()> {
         let circuit_id = id.circuit_index();
-        self.stage_impl(circuit_id, rxs)
+        let folded = self.fold_stage_polys(rxs);
+        self.stage_impl(circuit_id, folded);
+        Ok(())
     }
 }
 
