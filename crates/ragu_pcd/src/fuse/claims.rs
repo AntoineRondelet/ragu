@@ -126,9 +126,9 @@ impl<K, F: Field, R: Rank> Borrow<structured::Polynomial<F, R>> for TrackedPoly<
 ///
 /// The fuse pipeline threads these through the claims builder so that each
 /// `A` polynomial retains a link back to its commitment.
-pub struct Atom<'rx, K, F: Field, R: Rank> {
-    pub key: K,
-    pub poly: &'rx structured::Polynomial<F, R>,
+pub(super) struct Atom<'rx, K, F: Field, R: Rank> {
+    pub(super) key: K,
+    pub(super) poly: &'rx structured::Polynomial<F, R>,
 }
 
 // Manual Copy/Clone: derive(Copy) would add spurious F: Copy and R: Copy bounds.
@@ -142,21 +142,21 @@ impl<K: Copy, F: Field, R: Rank> Copy for Atom<'_, K, F, R> {}
 
 /// Identifies which of the two child proofs a polynomial came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Side {
+pub(super) enum Side {
     Left,
     Right,
 }
 
 /// Key identifying a polynomial and its corresponding commitment within the
 /// fuse pipeline: which child proof, and which component of that proof.
-pub(crate) type FuseAtom = (Side, RxComponent);
+pub(super) type FuseAtom = (Side, RxComponent);
 
 /// The two child proofs being fused. Provides [`Atom`]-tagged rx values
 /// for claim building, and resolves [`FuseAtom`] keys back to their
 /// `(commitment, blind)` pairs for the MSM in `_06_ab`.
-pub(crate) struct FuseProofSource<'rx, C: Cycle, R: Rank> {
-    pub(crate) left: &'rx Proof<C, R>,
-    pub(crate) right: &'rx Proof<C, R>,
+pub(super) struct FuseProofSource<'rx, C: Cycle, R: Rank> {
+    pub(super) left: &'rx Proof<C, R>,
+    pub(super) right: &'rx Proof<C, R>,
 }
 
 impl<'rx, C: Cycle, R: Rank> FuseProofSource<'rx, C, R> {
@@ -206,7 +206,7 @@ impl<'rx, C: Cycle, R: Rank> Source for FuseProofSource<'rx, C, R> {
     }
 }
 
-/// [`Builder`](crate::internal::claims::Builder) specialized for the fuse pipeline, where `A`
+/// [`Builder`] specialized for the fuse pipeline, where `A`
 /// polynomials carry [`CommitmentDecomposition`]s via [`TrackedPoly`].
 pub(super) type FuseBuilder<'m, 'rx, F, R> =
     Builder<'m, 'rx, TrackedPoly<'rx, FuseAtom, F, R>, F, R>;
