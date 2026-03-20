@@ -88,15 +88,15 @@ fn eval_ky((a, b, y): (Fp, Fp, Fp)) {
 }
 
 #[library_benchmark]
-#[bench::into_object_test_rank(MySimpleCircuit)]
-fn into_object_test_rank(circuit: impl Circuit<Fp>) {
-    black_box(CircuitExt::<Fp>::into_object::<TestRank>(circuit)).unwrap();
+#[bench::simple(MySimpleCircuit)]
+fn constraint_counts_simple(circuit: impl Circuit<Fp>) {
+    black_box(CircuitExt::<Fp>::constraint_counts_trivial(&circuit)).unwrap();
 }
 
 #[library_benchmark]
 #[benches::multiple( SquareCircuit { times: 2 }, SquareCircuit { times: 10 },)]
-fn into_object_production_rank(circuit: impl Circuit<Fp>) {
-    black_box(CircuitExt::<Fp>::into_object::<ProductionRank>(circuit)).unwrap();
+fn constraint_counts_square(circuit: impl Circuit<Fp>) {
+    black_box(CircuitExt::<Fp>::constraint_counts_trivial(&circuit)).unwrap();
 }
 
 #[library_benchmark(setup = setup_rng)]
@@ -116,7 +116,7 @@ fn rx_production_rank((circuit, (witness,)): (SquareCircuit, (Fp,))) {
 
 library_benchmark_group!(
     name = circuit_synthesis;
-    benchmarks = into_object_test_rank, into_object_production_rank, eval_ky, rx_test_rank, rx_production_rank,
+    benchmarks = constraint_counts_simple, constraint_counts_square, eval_ky, rx_test_rank, rx_production_rank,
 );
 
 #[library_benchmark]

@@ -121,28 +121,19 @@ fn test_rerandomize_consistency() {
         }
     }
 
-    let circuit_single =
-        super::adapter::Adapter::<Pasta, Rerandomize<Single>, R, HEADER_SIZE>::new(
-            Rerandomize::new(),
-        )
-        .into_object::<R>()
-        .unwrap();
+    let circuit_single = super::adapter::Adapter::<Pasta, Rerandomize<Single>, R, HEADER_SIZE>::new(
+        Rerandomize::new(),
+    );
     let circuit_pair = super::adapter::Adapter::<Pasta, Rerandomize<Pair>, R, HEADER_SIZE>::new(
         Rerandomize::new(),
-    )
-    .into_object::<R>()
-    .unwrap();
+    );
 
     let x = Fp::from(5u64);
     let y = Fp::from(17u64);
     let key = registry::Key::default();
 
-    let floor_plan_single =
-        ragu_circuits::floor_planner::floor_plan(circuit_single.segment_records());
-    let floor_plan_pair = ragu_circuits::floor_planner::floor_plan(circuit_pair.segment_records());
-
-    let eval_single = circuit_single.sxy(x, y, &key, &floor_plan_single);
-    let eval_pair = circuit_pair.sxy(x, y, &key, &floor_plan_pair);
+    let eval_single = circuit_single.sxy_trivial::<R>(x, y, &key).unwrap();
+    let eval_pair = circuit_pair.sxy_trivial::<R>(x, y, &key).unwrap();
 
     assert_eq!(eval_single, eval_pair,);
 }

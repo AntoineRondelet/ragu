@@ -14,7 +14,7 @@ use ragu_pasta::Fp;
 use ragu_primitives::Element;
 
 use crate::{
-    Circuit, CircuitExt, CircuitObject,
+    Circuit, CircuitExt,
     polynomials::{Rank, TestRank},
     registry,
 };
@@ -60,21 +60,23 @@ impl Circuit<Fp> for SquareCircuit {
     }
 }
 
-fn consistency_checks<R: Rank>(circuit: &dyn CircuitObject<Fp, R>) {
+fn consistency_checks<R: Rank>(circuit: &impl Circuit<Fp>) {
     let x = Fp::random(&mut rand::rng());
     let y = Fp::random(&mut rand::rng());
     let k = registry::Key::new(Fp::random(&mut rand::rng()));
-    let floor_plan = crate::floor_planner::floor_plan(circuit.segment_records());
 
-    let sxy_eval = circuit.sxy(x, y, &k, &floor_plan);
-    let s0y_eval = circuit.sxy(Fp::ZERO, y, &k, &floor_plan);
-    let sx0_eval = circuit.sxy(x, Fp::ZERO, &k, &floor_plan);
-    let s00_eval = circuit.sxy(Fp::ZERO, Fp::ZERO, &k, &floor_plan);
+    let sxy_eval = circuit.sxy_trivial::<R>(x, y, &k).unwrap();
+    let s0y_eval = circuit.sxy_trivial::<R>(Fp::ZERO, y, &k).unwrap();
+    let sx0_eval = circuit.sxy_trivial::<R>(x, Fp::ZERO, &k).unwrap();
+    let s00_eval = circuit.sxy_trivial::<R>(Fp::ZERO, Fp::ZERO, &k).unwrap();
 
-    let sxY_poly = circuit.sx(x, &k, &floor_plan);
-    let sXy_poly = circuit.sy(y, &k, &floor_plan).unstructured();
-    let s0Y_poly = circuit.sx(Fp::ZERO, &k, &floor_plan);
-    let sX0_poly = circuit.sy(Fp::ZERO, &k, &floor_plan).unstructured();
+    let sxY_poly = circuit.sx_trivial::<R>(x, &k).unwrap();
+    let sXy_poly = circuit.sy_trivial::<R>(y, &k).unwrap().unstructured();
+    let s0Y_poly = circuit.sx_trivial::<R>(Fp::ZERO, &k).unwrap();
+    let sX0_poly = circuit
+        .sy_trivial::<R>(Fp::ZERO, &k)
+        .unwrap()
+        .unstructured();
 
     assert_eq!(sxy_eval, ragu_arithmetic::eval(&sXy_poly[..], x));
     assert_eq!(sxy_eval, ragu_arithmetic::eval(&sxY_poly[..], y));
@@ -154,19 +156,17 @@ fn test_simple_circuit() {
     let assignment = trace.assemble_trivial::<MyRank>().unwrap();
 
     type MyRank = TestRank;
-    let circuit = MySimpleCircuit.into_object::<MyRank>().unwrap();
 
-    consistency_checks(&*circuit);
+    consistency_checks::<MyRank>(&MySimpleCircuit);
 
     let y = Fp::random(&mut rand::rng());
     let z = Fp::random(&mut rand::rng());
     let k = registry::Key::default();
-    let floor_plan = crate::floor_planner::floor_plan(circuit.segment_records());
 
     let a = assignment.clone();
     let mut b = assignment.clone();
     b.dilate(z);
-    b.add_assign(&circuit.sy(y, &k, &floor_plan));
+    b.add_assign(&MySimpleCircuit.sy_trivial::<MyRank>(y, &k).unwrap());
     b.add_assign(&MyRank::tz(z));
 
     let expected = MySimpleCircuit
