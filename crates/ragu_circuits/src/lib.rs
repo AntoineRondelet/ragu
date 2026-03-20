@@ -120,76 +120,64 @@ pub trait Circuit<F: Field>: Sized + Send + Sync {
 
 /// An extension trait for all circuits.
 pub trait CircuitExt<F: Field>: Circuit<F> {
-    /// Given a polynomial [`Rank`], convert this circuit into a boxed
-    /// [`CircuitObject`] that provides methods for evaluating the $s(X, Y)$
-    /// polynomial for this circuit.
-    fn into_object<'a, R: Rank>(self) -> Result<Box<dyn CircuitObject<F, R> + 'a>>
+    /// Evaluates $s(x, y)$ using the given key and an auto-computed floor plan.
+    fn sxy_trivial<R: Rank>(&self, x: F, y: F, key: &registry::Key<F>) -> Result<F>
     where
-        Self: 'a,
         F: FromUniformBytes<64>,
     {
-        let metrics = metrics::eval(&self)?;
+        let metrics = metrics::eval(self)?;
+        let floor_plan = floor_planner::floor_plan(&metrics.segments);
+        s::sxy::eval::<_, _, R>(self, x, y, key, &floor_plan)
+    }
 
-        if metrics.num_linear_constraints > R::num_coeffs() {
-            return Err(Error::LinearBoundExceeded {
-                limit: R::num_coeffs(),
-            });
-        }
+    /// Computes $s(X, y)$ using the given key and an auto-computed floor plan.
+    fn sy_trivial<R: Rank>(
+        &self,
+        y: F,
+        key: &registry::Key<F>,
+    ) -> Result<structured::Polynomial<F, R>>
+    where
+        F: FromUniformBytes<64>,
+    {
+        let metrics = metrics::eval(self)?;
+        let floor_plan = floor_planner::floor_plan(&metrics.segments);
+        s::sy::eval(self, y, key, &floor_plan)
+    }
 
-        if metrics.num_multiplication_constraints > R::n() {
-            return Err(Error::MultiplicationBoundExceeded { limit: R::n() });
-        }
+    /// Computes $s(x, Y)$ using the given key and an auto-computed floor plan.
+    fn sx_trivial<R: Rank>(
+        &self,
+        x: F,
+        key: &registry::Key<F>,
+    ) -> Result<unstructured::Polynomial<F, R>>
+    where
+        F: FromUniformBytes<64>,
+    {
+        let metrics = metrics::eval(self)?;
+        let floor_plan = floor_planner::floor_plan(&metrics.segments);
+        s::sx::eval(self, x, key, &floor_plan)
+    }
 
-        struct ProcessedCircuit<C> {
-            circuit: C,
-            metrics: metrics::CircuitMetrics,
-        }
+    /// Returns the floor plan computed from circuit metrics, as a
+    /// [`Vec`](alloc::vec::Vec) of [`floor_planner::ConstraintSegment`]s.
+    fn floor_plan_trivial(&self) -> Result<alloc::vec::Vec<floor_planner::ConstraintSegment>>
+    where
+        F: FromUniformBytes<64>,
+    {
+        let metrics = metrics::eval(self)?;
+        Ok(floor_planner::floor_plan(&metrics.segments))
+    }
 
-        impl<F: Field, C: Circuit<F>, R: Rank> CircuitObject<F, R> for ProcessedCircuit<C> {
-            fn sxy(
-                &self,
-                x: F,
-                y: F,
-                key: &registry::Key<F>,
-                floor_plan: &[floor_planner::ConstraintSegment],
-            ) -> F {
-                s::sxy::eval::<_, _, R>(&self.circuit, x, y, key, floor_plan)
-                    .expect("should succeed if metrics succeeded")
-            }
-            fn sx(
-                &self,
-                x: F,
-                key: &registry::Key<F>,
-                floor_plan: &[floor_planner::ConstraintSegment],
-            ) -> unstructured::Polynomial<F, R> {
-                s::sx::eval(&self.circuit, x, key, floor_plan)
-                    .expect("should succeed if metrics succeeded")
-            }
-            fn sy(
-                &self,
-                y: F,
-                key: &registry::Key<F>,
-                floor_plan: &[floor_planner::ConstraintSegment],
-            ) -> structured::Polynomial<F, R> {
-                s::sy::eval(&self.circuit, y, key, floor_plan)
-                    .expect("should succeed if metrics succeeded")
-            }
-            fn constraint_counts(&self) -> (usize, usize) {
-                (
-                    self.metrics.num_multiplication_constraints,
-                    self.metrics.num_linear_constraints,
-                )
-            }
-            fn segment_records(&self) -> &[SegmentRecord] {
-                &self.metrics.segments
-            }
-        }
-
-        let circuit = ProcessedCircuit {
-            circuit: self,
-            metrics,
-        };
-        Ok(Box::new(circuit))
+    /// Returns constraint counts `(multiplication, linear)` from circuit metrics.
+    fn constraint_counts_trivial(&self) -> Result<(usize, usize)>
+    where
+        F: FromUniformBytes<64>,
+    {
+        let metrics = metrics::eval(self)?;
+        Ok((
+            metrics.num_multiplication_constraints,
+            metrics.num_linear_constraints,
+        ))
     }
 
     /// Computes the trace for this circuit from a witness.
@@ -214,7 +202,7 @@ impl<F: Field, C: Circuit<F>> CircuitExt<F> for C {}
 
 /// A trait for (partially) evaluating $s(X, Y)$ for some circuit.
 ///
-/// See [`CircuitExt::into_object`].
+/// Constructed internally from a [`Circuit`] implementation.
 pub trait CircuitObject<F: Field, R: Rank>: Send + Sync {
     /// Evaluates the polynomial $s(x, y)$ for some $x, y \in \mathbb{F}$.
     fn sxy(
@@ -249,4 +237,75 @@ pub trait CircuitObject<F: Field, R: Rank>: Send + Sync {
     /// These records serve as input to
     /// [`floor_planner::floor_plan`] for computing absolute offsets.
     fn segment_records(&self) -> &[SegmentRecord];
+}
+
+/// Wraps a circuit into a boxed [`CircuitObject`] that can evaluate the
+/// $s(X, Y)$ polynomial.
+pub(crate) fn into_circuit_object<'a, F, C, R>(
+    circuit: C,
+) -> Result<Box<dyn CircuitObject<F, R> + 'a>>
+where
+    F: FromUniformBytes<64>,
+    C: Circuit<F> + 'a,
+    R: Rank,
+{
+    let metrics = metrics::eval(&circuit)?;
+
+    if metrics.num_linear_constraints > R::num_coeffs() {
+        return Err(Error::LinearBoundExceeded {
+            limit: R::num_coeffs(),
+        });
+    }
+
+    if metrics.num_multiplication_constraints > R::n() {
+        return Err(Error::MultiplicationBoundExceeded { limit: R::n() });
+    }
+
+    struct ProcessedCircuit<C> {
+        circuit: C,
+        metrics: metrics::CircuitMetrics,
+    }
+
+    impl<F: Field, C: Circuit<F>, R: Rank> CircuitObject<F, R> for ProcessedCircuit<C> {
+        fn sxy(
+            &self,
+            x: F,
+            y: F,
+            key: &registry::Key<F>,
+            floor_plan: &[floor_planner::ConstraintSegment],
+        ) -> F {
+            s::sxy::eval::<_, _, R>(&self.circuit, x, y, key, floor_plan)
+                .expect("should succeed if metrics succeeded")
+        }
+        fn sx(
+            &self,
+            x: F,
+            key: &registry::Key<F>,
+            floor_plan: &[floor_planner::ConstraintSegment],
+        ) -> unstructured::Polynomial<F, R> {
+            s::sx::eval(&self.circuit, x, key, floor_plan)
+                .expect("should succeed if metrics succeeded")
+        }
+        fn sy(
+            &self,
+            y: F,
+            key: &registry::Key<F>,
+            floor_plan: &[floor_planner::ConstraintSegment],
+        ) -> structured::Polynomial<F, R> {
+            s::sy::eval(&self.circuit, y, key, floor_plan)
+                .expect("should succeed if metrics succeeded")
+        }
+        fn constraint_counts(&self) -> (usize, usize) {
+            (
+                self.metrics.num_multiplication_constraints,
+                self.metrics.num_linear_constraints,
+            )
+        }
+        fn segment_records(&self) -> &[SegmentRecord] {
+            &self.metrics.segments
+        }
+    }
+
+    let circuit = ProcessedCircuit { circuit, metrics };
+    Ok(Box::new(circuit))
 }

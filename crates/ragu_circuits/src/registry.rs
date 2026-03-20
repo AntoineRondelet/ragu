@@ -23,7 +23,7 @@ use ragu_core::{Error, Result};
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, vec::Vec};
 
 use crate::{
-    Circuit, CircuitExt, CircuitObject,
+    Circuit, CircuitObject,
     floor_planner::ConstraintSegment,
     polynomials::{Rank, structured, unstructured},
     staging::{Stage, StageExt},
@@ -123,7 +123,8 @@ impl<'params, F: FromUniformBytes<64>, R: Rank> RegistryBuilder<'params, F, R> {
     where
         C: Circuit<F> + 'params,
     {
-        self.application_steps.push(circuit.into_object()?);
+        self.application_steps
+            .push(crate::into_circuit_object(circuit)?);
         Ok(self)
     }
 
@@ -132,7 +133,8 @@ impl<'params, F: FromUniformBytes<64>, R: Rank> RegistryBuilder<'params, F, R> {
     where
         C: Circuit<F> + 'params,
     {
-        self.internal_circuits.push(circuit.into_object()?);
+        self.internal_circuits
+            .push(crate::into_circuit_object(circuit)?);
         Ok(self)
     }
 
@@ -141,7 +143,8 @@ impl<'params, F: FromUniformBytes<64>, R: Rank> RegistryBuilder<'params, F, R> {
     where
         C: Circuit<F> + 'params,
     {
-        self.internal_steps.push(circuit.into_object()?);
+        self.internal_steps
+            .push(crate::into_circuit_object(circuit)?);
         Ok(self)
     }
 
